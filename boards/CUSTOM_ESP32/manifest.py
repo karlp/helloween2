@@ -2,8 +2,6 @@
 include("$(PORT_DIR)/boards/manifest.py")
 
 # include our own extra...
-module("xxd.py", base_path="$(BOARD_DIR)/../../src/utils")
-
 module("halloween2.py", base_path="$(BOARD_DIR)/../../src")
 module("encoder_portable.py", base_path="$(BOARD_DIR)/../../src")
 # Only use this if you're customizing micropython for high speed as well!

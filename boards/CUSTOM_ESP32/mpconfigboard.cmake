@@ -10,8 +10,6 @@ set(SDKCONFIG_DEFAULTS
 # Set the user C modules to include in the build.
 set(USER_C_MODULES
     ${PROJECT_DIR}/lib/st7789_mpy/st7789/micropython.cmake
-    ${PROJECT_DIR}/src/cmodules/cexample/micropython.cmake
-    ${PROJECT_DIR}/src/cmodules/cexample2/micropython.cmake
 )
 
 # Set the manifest file for frozen Python code.

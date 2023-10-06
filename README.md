@@ -1,19 +1,18 @@
-MicroPython example boards
-==========================
+## What?
+Happy halloween 2023... If this gets finished, it might be worth more documentation
 
-This repository is an example of how to define custom MicroPython boards
-with custom Python and C modules.  The core MicroPython repository is a
-submodule and other code, including board definitions, is part of this
-repository.
+## Getting Started
+```
+. /esp/somewhere/export.sh
+git submodule update --init
+make -C lib/micropython/ports/esp32 submodules
+cd boards/CUSTOM_ESP32
+idf.py build
+....
+profit
+```
 
-To set up MicroPython, check out the submodule and build `mpy-cross`:
 
-    $ git submodule update --init lib/micropython
-    $ make -C lib/micropython/mpy-cross
+## Upstream
+This repository structure is based on: https://github.com/micropython/micropython-example-boards
 
-The various custom boards will require certain submodules of MicroPython
-itself.  These can be initialised via:
-
-    $ cd lib/micropython
-    $ git submodule update --init lib/stm32lib lib/berkeley-db-1.xx
-    $ cd ../..
