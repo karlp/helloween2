@@ -11,3 +11,5 @@ module("tft_config.py", base_path="$(BOARD_DIR)/../../src")
 # Add as many as you feel you need
 module("vga1_16x16.py", base_path="$(BOARD_DIR)/../../lib/st7789_mpy/fonts/bitmap")
 module("vga1_8x8.py", base_path="$(BOARD_DIR)/../../lib/st7789_mpy/fonts/bitmap")
+
+module("mqtt_as.py", base_path="$(BOARD_DIR)/../../lib/micropython-mqtt/mqtt_as")

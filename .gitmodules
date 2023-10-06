@@ -4,3 +4,6 @@
 [submodule "lib/st7789_mpy"]
 	path = lib/st7789_mpy
 	url = https://github.com/russhughes/st7789_mpy.git
+[submodule "lib/micropython-mqtt"]
+	path = lib/micropython-mqtt
+	url = https://github.com/peterhinch/micropython-mqtt.git
