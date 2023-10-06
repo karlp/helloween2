@@ -62,7 +62,10 @@ import encoder_portable
 import neopixel
 
 class Board:
-    """TODO - fix this up to match... one board or another"""
+    """
+    TODO - fix this up to match... one board or another
+    TODO - use the boards/pins.csv you can use now that you have a proper repo?
+    """
     MOTOR1 = machine.Pin(32, machine.Pin.OUT)
     MOTOR2 = machine.Pin(33, machine.Pin.OUT)
     ENCODER1 = machine.Pin(21)

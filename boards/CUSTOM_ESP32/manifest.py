@@ -7,3 +7,7 @@ module("encoder_portable.py", base_path="$(BOARD_DIR)/../../src")
 # Only use this if you're customizing micropython for high speed as well!
 #module("tft_config.py", base_path="$(BOARD_DIR)/../../lib/st7789_mpy/examples/configs/tdisplay_esp32")
 module("tft_config.py", base_path="$(BOARD_DIR)/../../src")
+
+# Add as many as you feel you need
+module("vga1_16x16.py", base_path="$(BOARD_DIR)/../../lib/st7789_mpy/fonts/bitmap")
+module("vga1_8x8.py", base_path="$(BOARD_DIR)/../../lib/st7789_mpy/fonts/bitmap")
