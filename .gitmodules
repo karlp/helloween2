@@ -7,3 +7,7 @@
 [submodule "lib/micropython-mqtt"]
 	path = lib/micropython-mqtt
 	url = https://github.com/peterhinch/micropython-mqtt.git
+[submodule "lib/prometheus_express_aio"]
+	path = lib/prometheus_express_aio
+	url = git@github.com:karlp/prometheus_express_aio.git
+	branch = asyncio
