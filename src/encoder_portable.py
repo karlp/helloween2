@@ -20,6 +20,8 @@ class Encoder:
         self._pos = 0
         self._max = 0
         self._min = 0
+        self.tmax = None
+        self.tmin = None
         self.ev = asyncio.ThreadSafeFlag()
 
         try:
@@ -34,7 +36,7 @@ class Encoder:
         self._pos += 1 if self.forward else -1
         self._max = max(self._pos, self._max)
         self._min = min(self._pos, self._min)
-        if self.tmax and self._pos > self._tmax:
+        if self.tmax and self._pos > self.tmax:
             self.ev.set()
             self._cb(self._pos)
 
