@@ -21,6 +21,8 @@ import vga1_8x8 as font8
 
 import mqtt_as
 
+import halloween2
+
 
 class Core:
     def __init__(self):
@@ -33,6 +35,8 @@ class Core:
         self.colour_status = st7789.CYAN
         self.topic_status = "helloween/status"
         self.topic_state = "helloween/state"
+        self.app = halloween2.KApp()
+        self.t_lights = None
 
     def start(self):
         self.tft.on()
@@ -103,13 +107,26 @@ class Core:
     async def pulse(self):
         """ demo code that blinks a "led" on demand"""
         self.helper_led(1, True)
-        await asyncio.sleep_ms(500)
+        await asyncio.sleep_ms(200)
         self.helper_led(1, False)
 
     async def handle_messages(self):
         async for topic, msg, retained in self.mq.queue:
             print(f'Topic: "{topic.decode()}" Message: "{msg.decode()}" Retained: {retained}')
+            print("type of topic and message", type(topic), type(msg))
             asyncio.create_task(self.pulse())
+            topic = topic.decode()
+            msg = msg.decode()
+            if "lights" in topic:
+                if "idle" in msg:
+                    print("(re)engaging idle lights")
+                    if self.t_lights:
+                        self.t_lights.cancel()
+                    self.t_lights = asyncio.create_task(self.app.lights.run_idle_simple())
+                if "off" in msg:
+                    if self.t_lights:
+                        self.t_lights.cancel()
+                    self.app.lights.off()
 
     async def down(self):
         """I don't think I need this one at all..."""
