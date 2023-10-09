@@ -13,3 +13,5 @@ module("vga1_16x16.py", base_path="$(BOARD_DIR)/../../lib/st7789_mpy/fonts/bitma
 module("vga1_8x8.py", base_path="$(BOARD_DIR)/../../lib/st7789_mpy/fonts/bitmap")
 
 module("mqtt_as.py", base_path="$(BOARD_DIR)/../../lib/micropython-mqtt/mqtt_as")
+
+package("prometheus_express", base_path="$(BOARD_DIR)/../../lib/prometheus_express_aio")

@@ -29,6 +29,15 @@ Intent is:
 
 ## Stretch goals
  * statsd/whatever to track events, because, why not go overboard
+ ** https://github.com/ssube/prometheus_express (and just straight grafana....)
+ ** https://github.com/ssube/prometheus_express/pull/32 (for asyncio version)
+ * or
+ ** port https://github.com/jsocol/pystatsd/ to micropython (looks easy to port)
+ ** https://github.com/WoLpH/python-statsd (not touched sine 2017 though..
+ ** and needs graphite as well then...
+
+ I _do_ feel that statsd style push is _probably_ less intrusive for this style of project
+ as it doesn't need a full webserver interrupting things at arbitrary times, but... lets try shall we...
 
 Initial mock of what the halloween show should do...
 
