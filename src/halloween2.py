@@ -136,50 +136,47 @@ class KMotor():
         #kwargs = {**defs, **kwargs} # fixme - later?
         self.pwm_freq = kwargs.get("freq", defs["freq"])  # boo, we were trying to avoid dups...
         decay = kwargs.get("decay", defs["decay"])  # kwargs["decay"]
-        ddecay = dict(SLOW=1023, FAST=0)
+        self.pmax = 65535 # for mp vanilla 1.21.0
+        ddecay = dict(SLOW=self.pmax, FAST=0)
         self.alt_state = ddecay.get(decay, ddecay["SLOW"])
         self.pin1 = pin1
         self.pin2 = pin2
-        #self.position = 0 # Declare it to be at the bottom.... XXX not part of motor..
         # You cannot recreate PWM, but we don't want to _start_ anything here...
-        self.p1 = machine.PWM(self.pin1, self.pwm_freq, duty=0)
-        self.p2 = machine.PWM(self.pin2, self.pwm_freq, duty=0)
+        self.p1 = machine.PWM(self.pin1, self.pwm_freq, duty_u16=0)
+        self.p2 = machine.PWM(self.pin2, self.pwm_freq, duty_u16=0)
+
+    def percents_to_u16(self, percents: int) -> int:
+        return (percents * self.pmax + 50) // 100
 
     # NOTE, this api does not let you simply slide speed up and down, if that matters?
     def forward(self, speed=50):
-        self.p1.duty(int(speed/100 * 1023))
-        self.p2.duty(0)
+        self.p1.duty_u16(self.percents_to_u16(speed))
+        self.p2.duty_u16(0)
 
     def back(self, speed=50):
-        self.p1.duty(0)
-        self.p2.duty(int(speed/100 * 1023))
+        self.p1.duty_u16(0)
+        self.p2.duty_u16(self.percents_to_u16(speed))
 
     def stop(self):
         """stop, using initial options"""
-        self.p1.duty(self.alt_state)
-        self.p2.duty(self.alt_state)
+        self.p1.duty_u16(self.alt_state)
+        self.p2.duty_u16(self.alt_state)
 
     def stop_coast(self):
         """
         coast, aka fast decay
         :return:
         """
-        self.p1.duty(0)
-        self.p2.duty(0)
+        self.p1.duty_u16(0)
+        self.p2.duty_u16(0)
 
     def stop_brake(self):
         """
         brake, aka slow decay
         :return:
         """
-        self.p1.duty(1023)
-        self.p2.duty(1023)
-
-    # def reset_low(self):
-    #     self.position = 0
-    #
-    # def reset_high(self):
-    #     self.position = 1000
+        self.p1.duty_u16(self.pmax)
+        self.p2.duty_u16(self.pmax)
 
 
 class Spider():
