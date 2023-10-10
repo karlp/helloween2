@@ -66,7 +66,7 @@ class Core:
         self.tft.text(self.font8, txt, 0, 100, self.colour_status)
         print(txt)
 
-    def helper_status(self, txt, line=0, clear=True):
+    def helper_status(self, line, txt, clear=True):
         """helper to write status text, hides colours and positioning"""
         # TODO - clear whole line would probable be important...
         # ideally get screen width and font size and expand the string with " " until it's the whole line?
@@ -115,6 +115,11 @@ class Core:
         await asyncio.sleep_ms(200)
         self.helper_led(1, False)
 
+    def generate_status_msg(self):
+        """stuff we want to post to mqtt regularly, as status stuff."""
+        return f"""spider: pos: {self.app.spider.pos_real} goal: {self.app.spider.pos_goal} in pos: {self.app.spider.in_position}
+            lights: lol, nothing yet. detector: {self.app.people_sensor}"""
+
     async def handle_messages(self):
         async for topic, msg, retained in self.mq.queue:
             print(f'Topic: "{topic.decode()}" Message: "{msg.decode()}" Retained: {retained}')
@@ -122,6 +127,7 @@ class Core:
             asyncio.create_task(self.pulse())
             topic = topic.decode()
             msg = msg.decode()
+            # FIXME - lots of safety validation on messages please!
             if "lights" in topic:
                 if "idle" in msg:
                     print("(re)engaging idle lights")
@@ -134,7 +140,27 @@ class Core:
                     self.app.lights.off()
             if "lcd" in topic:
                 if "line2" in topic:
-                    self.helper_status(msg, 2, clear="clear" in topic)
+                    self.helper_status(2, msg, clear="clear" in topic)
+            if "spider" in topic:
+                if "restart" in topic:
+                    # you may want to set more params here yo... json is inevitable!
+                    self.app.spider.restart_pid()
+                if "off" in topic:
+                    self.app.spider.t_pid.cancel()
+                    self.app.motor.stop()
+                if "speedlimit" in topic:
+                    param = float(msg)
+                    print("setting speed limit to ", param)
+                    self.app.spider.speed_limit = param
+                if "moveabs" in topic:
+                    param = int(msg)
+                    self.helper_status(2, f"moving to: {param}")
+                    self.app.spider.move_to(param)
+                if "resetzero" in topic:
+                    self.app.spider.pos_real = self.app.spider.pos_goal = 0
+                if "dump" in topic:
+                    msg = "um, stuff?"
+
 
     async def down(self):
         """I don't think I need this one at all..."""
@@ -146,7 +172,7 @@ class Core:
             self.mq_down_events += 1
             txt = f"mqtt/wifi down {self.mq_down_events}"
             print(txt)
-            self.helper_status(txt, 1)
+            self.helper_status(1, txt)
 
     async def up(self):
         """we want an mq up event, as it's great for re-doing subs..."""
@@ -156,7 +182,7 @@ class Core:
             self.helper_led(2, True)
             txt = "mq good"
             print(txt)
-            self.helper_status(txt, 1)
+            self.helper_status(1, txt)
             await self.mq.subscribe("helloween/cmd/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
             await self.mq.publish(self.topic_state, "on", True)
 
@@ -168,7 +194,7 @@ class Core:
             my_ip = self.mq._sta_if.ifconfig()[0]
             txt = f"Conn: {my_ip}"
             #self.tft.text(self.font8, txt, 0, 120, self.colour_status)
-            self.helper_status(txt, 0)
+            self.helper_status(0, txt)
             print(txt)
         except OSError:
             print("connection failed...")
@@ -181,7 +207,9 @@ class Core:
             await asyncio.sleep(2)
             i += 1
             print("bleep bloop")
-            await self.mq.publish(self.topic_status, f"{i}, outs: {self.mq_down_events}")
+            self.helper_status(1, f"{self.app.spider.pos_goal} / {self.app.spider.pos_real}")
+            #await self.mq.publish(self.topic_status, f"{i}, outs: {self.mq_down_events}")
+            await self.mq.publish(self.topic_status, self.generate_status_msg())
 
 
 

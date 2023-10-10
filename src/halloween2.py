@@ -70,6 +70,8 @@ import machine
 import encoder_portable
 import neopixel
 
+import spider2
+
 class Board:
     """
     TODO - fix this up to match... one board or another
@@ -157,6 +159,13 @@ class KMotor():
         self.p1.duty_u16(0)
         self.p2.duty_u16(self.percents_to_u16(speed))
 
+    def speed(self, speed: int=50):
+        """Allows signed forwards/backwords automatically"""
+        if speed >= 0:
+            self.forward(speed)
+        else:
+            self.back(-speed)
+
     def stop(self):
         """stop, using initial options"""
         self.p1.duty_u16(self.alt_state)
@@ -179,41 +188,6 @@ class KMotor():
         self.p2.duty_u16(self.pmax)
 
 
-class Spider():
-    def __init__(self, motor: KMotor, encoder: KEncoder):
-        self.motor = motor
-        self.encoder = encoder
-        self.ready = True
-        self.position = 100  # right now, arbitrarily declaring 100 to be the "top" and 0 to be the floor.
-
-    async def start_show(self):
-        """Cannot start unless  motor is retracted..."""
-        # TODO - probably make this an asyncio.Event(), so it starts when it can?  (though, that's bad rtos style, we mighjt not want it then)
-        if not self.ready:
-            return False, "not ready..."
-
-        #await self.motor.forward()
-        pass
-
-    async def move_to(self, position, speed=50):
-        # set up the encoder so that it gives as an asyncio event that will be set when we're in position
-        # we also give it a callable when it hits...
-        print("starting spider move")
-        def my_cb(pos):
-            self.motor.stop()
-            print("cb hit at pos:", pos)
-        self.encoder.wait_for(position, my_cb)
-        print("about to move motor")
-        self.motor.forward(speed)
-        # pseudocode, going to need some guidance on this..
-        #await ev.wait()
-        print("waiting for encoder...")
-        await self.encoder.ev.wait()
-        self.motor.stop()
-        print("double stoppping...")
-        ## (I'm betting we just overshot nicely here... wheeee)
-
-
 class KPeopleSensor:
     """
     Wraps up whatever sensor we end up using, maybe even multiple...
@@ -224,7 +198,7 @@ class KPeopleSensor:
         self.pin.irq(self._handler, trigger=machine.Pin.IRQ_FALLING)
 
     def _handler(self, p):
-        print("handler...", p)
+        print("handler...", p.value())
         self.found.set()
 
 class KLights:
@@ -327,7 +301,7 @@ class KApp():
 
         self.motor = KMotor(Board.MOTOR1, Board.MOTOR2)
         self.mencoder = KEncoder(Board.ENCODER1, Board.ENCODER2)
-        self.spider = Spider(self.motor, self.mencoder)
+        self.spider = spider2.Spider2(self.motor, self.mencoder)
         self.lights = KLights(neopixel.NeoPixel(Board.STRIP, 300))
         self.people_sensor = KPeopleSensor(Board.DETECTOR)
 
