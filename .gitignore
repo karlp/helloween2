@@ -3,4 +3,10 @@ boards/CUSTOM_ESP32/build/
 boards/CUSTOM_ESP32/dependencies.lock
 boards/CUSTOM_ESP32/managed_components/
 *.iml
+.idea/
+typings/
+.python-version
+
+# my normal py venv names
+.env*
 
