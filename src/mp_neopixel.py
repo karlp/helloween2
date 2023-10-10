@@ -3,6 +3,13 @@
 
 from machine import bitstream
 
+class slice_maker_class:
+    def __getitem__(self, slc):
+        return slc
+
+
+slice_maker = slice_maker_class()
+
 
 class NeoPixel:
     # G R B W
@@ -25,10 +32,20 @@ class NeoPixel:
     def __len__(self):
         return self.n
 
+    def set_pixel(self, pixel_num, v):
+        def _set_pixel1(pixel_num, v):
+            offset = pixel_num * self.bpp
+            for nn in range(self.bpp):
+                self.buf[offset + self.ORDER[nn]] = v[nn]
+
+        if type(pixel_num) is slice:
+            for i in range(*pixel_num.indices(self.n)):
+                _set_pixel1(i, v)
+        else:
+            _set_pixel1(pixel_num, v)
+
     def __setitem__(self, i, v):
-        offset = i * self.bpp
-        for i in range(self.bpp):
-            self.buf[offset + self.ORDER[i]] = v[i]
+        self.set_pixel(i, v)
 
     def __getitem__(self, i):
         offset = i * self.bpp
