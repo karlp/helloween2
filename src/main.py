@@ -44,6 +44,7 @@ class Core:
 
 
     def do_station(self):
+        """ An alternate simple start, normally we let mqtt-as just take care of bizness"""
         network.hostname("helloween")
         self.sta = network.WLAN(network.STA_IF)
         self.sta.active(False)  # reset interface
@@ -65,11 +66,15 @@ class Core:
         self.tft.text(self.font8, txt, 0, 100, self.colour_status)
         print(txt)
 
-    def helper_status(self, txt):
+    def helper_status(self, txt, line=0, clear=True):
         """helper to write status text, hides colours and positioning"""
         # TODO - clear whole line would probable be important...
         # ideally get screen width and font size and expand the string with " " until it's the whole line?
-        self.tft.text(self.font8, txt, 0, 110, self.colour_status)
+        line_h = 10 # 8 for the font, plus padding
+        y = 100 + (line * line_h)
+        if clear:
+            self.tft.fill_rect(0, y, self.tft.width(), line_h, st7789.BLACK)
+        self.tft.text(self.font8, txt, 0, y, self.colour_status)
 
     def do_mqtt(self):
         """
@@ -127,6 +132,9 @@ class Core:
                     if self.t_lights:
                         self.t_lights.cancel()
                     self.app.lights.off()
+            if "lcd" in topic:
+                if "line2" in topic:
+                    self.helper_status(msg, 2, clear="clear" in topic)
 
     async def down(self):
         """I don't think I need this one at all..."""
@@ -138,7 +146,7 @@ class Core:
             self.mq_down_events += 1
             txt = f"mqtt/wifi down {self.mq_down_events}"
             print(txt)
-            self.helper_status(txt)
+            self.helper_status(txt, 1)
 
     async def up(self):
         """we want an mq up event, as it's great for re-doing subs..."""
@@ -148,7 +156,7 @@ class Core:
             self.helper_led(2, True)
             txt = "mq good"
             print(txt)
-            self.helper_status(txt)
+            self.helper_status(txt, 1)
             await self.mq.subscribe("helloween/cmd/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
             await self.mq.publish(self.topic_state, "on", True)
 
@@ -159,8 +167,8 @@ class Core:
             # TODO - write our IP address to that line?
             my_ip = self.mq._sta_if.ifconfig()[0]
             txt = f"Conn: {my_ip}"
-            self.tft.text(self.font8, txt, 0, 120, self.colour_status)
-            #self.helper_status(txt)
+            #self.tft.text(self.font8, txt, 0, 120, self.colour_status)
+            self.helper_status(txt, 0)
             print(txt)
         except OSError:
             print("connection failed...")
