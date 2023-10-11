@@ -96,7 +96,7 @@ class Core:
         c["wifi_pw"] = secrets.Wifi.PASSWORD
         c["queue_len"] = 10  # use event interface, basic short queue.
 
-        c["will"] = (self.topic_state, "off", True, 0)
+        c["will"] = (self.topic_state, "offline", True, 0)
 
         mqtt_as.MQTTClient.DEBUG = True  # yes please, right now!
         self.mq = mqtt_as.MQTTClient(c)
@@ -149,6 +149,7 @@ class Core:
             stat_t="~/state",
             schema="json",
             unique_id="yes_please_uid",
+            availability_topic=self.topic_state,
             dev=dict(mf="Ekta Labs",
                      name="hell-o-ween",
                      model="proto1",
@@ -296,7 +297,7 @@ class Core:
             await self.mq.subscribe("helloween/cmd/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
             await self.mq.subscribe("helloween/cmdjson/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
             await self.mq.subscribe(f"{self.ha_prefix}/+/{self.nodeid}/set", 0)  # some examples have an extra piece between node and set?!
-            await self.mq.publish(self.topic_state, "on", True)
+            await self.mq.publish(self.topic_state, "online", True)
             asyncio.create_task(self.update_hass())
 
     async def main_mq(self):
