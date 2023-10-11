@@ -51,6 +51,10 @@ class NeoPixel:
         offset = i * self.bpp
         return tuple(self.buf[offset + self.ORDER[i]] for i in range(self.bpp))
 
+    def rotate(self, count=1):
+        """Rotate.  count can be positive or negative..."""
+        self.buf = self.buf[count*self.bpp:] + self.buf[:count*self.bpp]
+
     def fill(self, v):
         b = self.buf
         l = len(self.buf)

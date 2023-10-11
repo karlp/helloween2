@@ -68,7 +68,7 @@ import random
 
 import machine
 import encoder_portable
-import neopixel
+import mp_neopixel
 
 import spider2
 
@@ -205,49 +205,106 @@ class KLights:
     """
     Intended to encapuslate the pixel strip leds around the door frame
     """
-    def __init__(self, strip: neopixel.NeoPixel):
+    def __init__(self, strip: mp_neopixel.NeoPixel):
         self.np = strip
         self.np.ORDER = (0, 1, 2, 3)  # My ws2815 are actualyl rgb, not grb like classics.
         self.available = asyncio.Event()
         self.irq = asyncio.Event()
         self.available.set()
         self.SCALE = 4
+        self.t_lights = None
         # "our" purple/green...
         self.C_PURPLE = (158//self.SCALE, 50//self.SCALE, 168//self.SCALE)
         self.C_GREEN = (50//self.SCALE, 168//self.SCALE, 131//self.SCALE)
         self.C_RED = (230//self.SCALE, 0, 0)
         self.C_ORANGE = (227//self.SCALE, 98//self.SCALE, 0)
 
+        self.known_patterns = [
+            ("idle_simple", self.run_idle_simple),
+            ("attack_simple1", self.run_attack_simple1),
+            ("blue_dummy1", self.run_blue_dummy1),
+            ("rainbow1", self.run_rainbow1),
+        ]
+
+    def run_pattern(self, func, **kwargs):
+        if self.t_lights:
+            self.t_lights.cancel()
+        self.t_lights = asyncio.create_task(func(**kwargs))
+
     def off(self):
         self.np.fill((0, 0, 0))
         self.np.write()
 
-    async def _inner_show_fake(self):
-        lights = "purplegreenpurplegreen"
+    async def run_rainbow1(self, step_ms=100):
+        """
+        just pick roygbiv colours
+        divide length into equal segments of roygbiv
+        anything left at the end will be left black,and we'll rotate into it...
+        then... rotate?
+        :return:
+        """
+        # // 4 is to cut the brightness down so that I don't brown out my supply.... :)
+        R = (255//4,0,0)
+        O = (255//4,127//4,0)
+        Y = (255//4,255//4,0)
+        G = (0,255//4,0)
+        B = (0,0,255//4)
+        I = (75//4,0,130//4)
+        V = (148//4,0,211//4)
+        colours = [R, O, Y, G, B, I, V]
+        chunk = self.np.n // len(colours)
+        self.np.fill((0, 0, 0))
+        for i, c in enumerate(colours):
+            self.np[i*chunk:(i+1)*chunk] = c
 
-        lstr = ''.join(random.choice((str.upper, str.lower))(c) for c in lights)
-        print(f"lights: {lstr}")
-        await asyncio.sleep_ms(100)
-
-    async def _inner_show_idle1(self):
-        print("starting show idle1")
-        self.np.fill(self.C_PURPLE)
         self.np.write()
-        #await asyncio.sleep(0.2)
-        # for now, randomly select an increasing percentage to be
-        myrange = [x for x in range(5, 40, 5)]
-        myrange.extend(range(50, 0, -5))
-        for x in myrange:
-            selected = [random.randrange(0, self.np.n) for _ in range(x)]
-            print("IDLE1 x ", len(selected))
-            ## ideally, we want some variance in the next colour now though really...
-            #[self.np.__setitem__(sel, self.C_GREEN) for sel in selected]
-            for sel in selected: self.np[sel] = self.C_GREEN
+
+        while True:
+            rot_n = 1
+            self.np.rotate(rot_n)
             self.np.write()
-            # put them back before next selected set to be green...
-            for sel in selected: self.np[sel] = self.C_PURPLE
+            await asyncio.sleep_ms(step_ms)
+
+    async def run_blue_dummy1(self, segs=5):
+        """
+        divide total length into segs.
+        for each seg, write triangular intensity, same colour...
+        (needs hsl...)
+        then, rotate each segment each iteration?
+        :return:
+        """
+        b1 = (0//self.SCALE, 71//self.SCALE, 194//self.SCALE)
+        while True:
+            for n in range(self.np.n):
+                pass # lol, this isn't ready
+            self.np.fill(b1)
+
             await asyncio.sleep_ms(500)
-        # then go back down again... if we like this sort of thing...
+
+    async def run_idle_simple(self):
+        print("starting show idle1")
+        while True:
+            self.np.fill(self.C_PURPLE)
+            self.np.write()
+            #await asyncio.sleep(0.2)
+            # for now, randomly select an increasing percentage to be
+            myrange = [x for x in range(5, 40, 5)]
+            myrange.extend(range(50, 0, -5))
+            for x in myrange:
+                selected = [random.randrange(0, self.np.n) for _ in range(x)]
+                print("IDLE1 x ", len(selected))
+                ## ideally, we want some variance in the next colour now though really...
+                #[self.np.__setitem__(sel, self.C_GREEN) for sel in selected]
+                for sel in selected:
+                    #self.np[sel] = self.C_GREEN
+                    self.np.set_pixel(sel, self.C_GREEN)
+                self.np.write()
+                # put them back before next selected set to be green...
+                for sel in selected:
+                    #self.np[sel] = self.C_PURPLE
+                    self.np.set_pixel(sel, self.C_PURPLE)
+                await asyncio.sleep_ms(500)
+            # then go back down again... if we like this sort of thing...
 
     async def _inner_show_idle2(self):
         """
@@ -258,34 +315,19 @@ class KLights:
         """
         pass
 
-    async def _inner_show_attack_fake(self):
-        lights = "angry red orange attack"
-        lstr = ''.join(random.choice((str.upper, str.lower))(c) for c in lights)
-        print(f"lights: {lstr}")
-        await asyncio.sleep(0.2)
-
-    async def _inner_show_attack1(self):
+    async def run_attack_simple1(self):
         """ Basic, getting started "attack" pattern...
         Can endlessly tweak the graphics, but get two running "modes" first...
         """
         choices = [self.C_RED, self.C_ORANGE]
-        #print("ACK!",)
-        for n in range(self.np.n): self.np[n] = random.choice(choices)
-        self.np.write()
-        await asyncio.sleep_ms(100)
-
-    async def run_idle_simple(self):
-        """
-        Just the wrapper, events and stuff are now external...
-        :return:
-        """
         while True:
-            await self._inner_show_idle1()
+            #print("ACK!",)
+            for n in range(self.np.n):
+                #self.np[n] = random.choice(choices)
+                self.np.set_pixel(n, random.choice(choices))
+            self.np.write()
+            await asyncio.sleep_ms(100)
 
-    async def run_attack_simple(self):
-        """no events, just the wrapper"""
-        while True:
-            await self._inner_show_attack1()
 
 class KApp():
     """
@@ -298,24 +340,17 @@ class KApp():
     I also need lots of helper bits for manual interation and debugging!
     """
     def __init__(self):
-
         self.motor = KMotor(Board.MOTOR1, Board.MOTOR2)
         self.mencoder = KEncoder(Board.ENCODER1, Board.ENCODER2)
         self.spider = spider2.Spider2(self.motor, self.mencoder)
-        self.lights = KLights(neopixel.NeoPixel(Board.STRIP, 300))
+        self.lights = KLights(mp_neopixel.NeoPixel(Board.STRIP, 300))
         self.people_sensor = KPeopleSensor(Board.DETECTOR)
 
-    async def set_position(self, position):
-        """
-        Intended to help reset things... when you have reset things, but need to
-        re-set encoders / motors after losing all your state ...
-        """
-        pass
 
     async def start_over(self):
         # await for these...?
         asyncio.gather(
-            self.spider.move_to(100),
+            #self.spider.move_to(100),
             self.lights.run_idle(),
         )
         # FIXME - reinitialize sensors? whatever?
@@ -326,7 +361,7 @@ class KApp():
         # FIXME - sooo, am I meant to be cancelling the existing task within the lights class there?
         asyncio.gather(
             self.lights.run_attack1(),
-            self.spider.move_to(0, 100)
+            #self.spider.move_to(0, 100)
         )
 
     async def wait_for_stuff(self):

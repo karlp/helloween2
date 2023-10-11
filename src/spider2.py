@@ -18,11 +18,14 @@ class Spider2():
         # before gearing? Implies my gearing ratio is ~36?  Measured gear case is 21mm  Most internet
         # shops imply that my gear case should be 19mm, and have a ratio of 9.6, but also all say 11 per rev?
         # weird as shit.  Use my measured empirical data first I suppose...
+        # None of it matters anyway, until/unless I want to get to a point of expressing
+        # commands in terms of actual distance to move.
 
         self.pos_goal = 0
         self.in_position = True
         self.limits_hit = False
         self.speed_limit = 1
+        self.step_ms = 5
 
         self.e_prev = 0
         self.eint = 0
@@ -30,6 +33,8 @@ class Spider2():
         self.t_pid = None
         self.t_soft_limits = None
         # Defaults empirically determined for the raw axel flag...
+        #pid= 0.8/0.001/0.001 nope..
+
         self.kp = 0.6
         self.ki = 0.003
         self.kd = 0.01
@@ -74,7 +79,6 @@ class Spider2():
         if enable:
             self.t_soft_limits = asyncio.create_task(t_limit_monitor())
 
-
     async def maintain_position(self):
         """Uses a PID loop to maintain any given position"""
         while True:
@@ -91,13 +95,12 @@ class Spider2():
                 out = 100 * self.speed_limit
             if out < -100 * self.speed_limit:
                 out = -100 * self.speed_limit
-            # print("speed: ", out)  # you can scan this for overshoot if you like, but it's spammy
+            print("speed: ", out)  # you can scan this for overshoot if you like, but it's spammy
             self.motor.speed(int(out))
             self.e_prev = e
             await asyncio.sleep_ms(self.step_ms)
 
-
-    def restart_pid(self, step_ms=5, kp=None, ki=None, kd=None, speed_limit=1):
+    def restart_pid(self, step_ms=None, kp=None, ki=None, kd=None, speed_limit=None):
         """
         Start or restart pid loop...
         :param step_ms:
@@ -107,18 +110,21 @@ class Spider2():
         :param speed_limit: how much to scale down again.  Yes, this is like P, but with a max speed limit....
         :return:
         """
-        self.step_ms = step_ms
         # Use the internal defaults unless specified
+        if step_ms:
+            self.step_ms = step_ms
         if kp:
             self.kp = kp
         if ki:
             self.ki = ki
         if kd:
             self.kd = kd
-        self.speed_limit = speed_limit
+        if speed_limit:
+            self.speed_limit = speed_limit
         self.e_prev = 0
         if self.t_pid:
             self.t_pid.cancel()
+        print("restarting with ", self.kp, self.ki, self.kd)
         self.t_pid = asyncio.create_task(self.maintain_position())
 
 

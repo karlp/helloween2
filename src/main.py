@@ -11,6 +11,7 @@ except ImportError:
 
 
 import asyncio
+import json
 import network
 import time
 
@@ -118,25 +119,36 @@ class Core:
     def generate_status_msg(self):
         """stuff we want to post to mqtt regularly, as status stuff."""
         return f"""spider: pos: {self.app.spider.pos_real} goal: {self.app.spider.pos_goal} in pos: {self.app.spider.in_position}
+        spider: t: {self.app.spider.step_ms} pid= {self.app.spider.kp}/{self.app.spider.ki}/{self.app.spider.kd}
             lights: lol, nothing yet. detector: {self.app.people_sensor}"""
 
     async def handle_messages(self):
         async for topic, msg, retained in self.mq.queue:
             print(f'Topic: "{topic.decode()}" Message: "{msg.decode()}" Retained: {retained}')
-            print("type of topic and message", type(topic), type(msg))
             asyncio.create_task(self.pulse())
             topic = topic.decode()
             msg = msg.decode()
+            jmsg = None
+            if "json" in topic:
+                jmsg = json.loads(msg)
             # FIXME - lots of safety validation on messages please!
+            # dispatch these all straight into their classes? or is control external?
+            # FIXME - I'm pretty sure I end up with multiple tsks running :|
             if "lights" in topic:
+                if "pattern" in topic:
+                    for pat, f in self.app.lights.known_patterns:  # (string, func...) tuples?
+                        if pat in msg:
+                            # we made run_pattern take kwargs, can we send it jmsg perhaps?
+                            self.app.lights.run_pattern(f)
+
                 if "idle" in msg:
                     print("(re)engaging idle lights")
-                    if self.t_lights:
-                        self.t_lights.cancel()
-                    self.t_lights = asyncio.create_task(self.app.lights.run_idle_simple())
+                    if self.app.lights.t_lights:
+                        self.app.lights.cancel()
+                    self.app.lights.t_lights = asyncio.create_task(self.app.lights.run_idle_simple())
                 if "off" in msg:
-                    if self.t_lights:
-                        self.t_lights.cancel()
+                    if self.app.lights.t_lights:
+                        self.app.lights.cancel()
                     self.app.lights.off()
             if "lcd" in topic:
                 if "line2" in topic:
@@ -144,7 +156,17 @@ class Core:
             if "spider" in topic:
                 if "restart" in topic:
                     # you may want to set more params here yo... json is inevitable!
-                    self.app.spider.restart_pid()
+                    if jmsg:
+                        print("restarting pid with json message")
+                        self.app.spider.restart_pid(
+                            step_ms=jmsg.get("step_ms", None),
+                            speed_limit=jmsg.get("speed_limit", None),
+                            kp=jmsg.get("kp", None),
+                            ki=jmsg.get("ki", None),
+                            kd=jmsg.get("ki", None),
+                            )
+                    else:
+                        self.app.spider.restart_pid()
                 if "off" in topic:
                     self.app.spider.t_pid.cancel()
                     self.app.motor.stop()
@@ -156,6 +178,11 @@ class Core:
                     param = int(msg)
                     self.helper_status(2, f"moving to: {param}")
                     self.app.spider.move_to(param)
+                if "movedelta" in topic:
+                    param = int(msg)
+                    dest = self.app.spider.pos_real + param
+                    self.helper_status(2, f"moving to: {dest}")
+                    self.app.spider.move_to(dest)
                 if "resetzero" in topic:
                     self.app.spider.pos_real = self.app.spider.pos_goal = 0
                 if "dump" in topic:
@@ -184,12 +211,13 @@ class Core:
             print(txt)
             self.helper_status(1, txt)
             await self.mq.subscribe("helloween/cmd/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
+            await self.mq.subscribe("helloween/cmdjson/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
             await self.mq.publish(self.topic_state, "on", True)
 
     async def main_mq(self):
         print("starting async main!")
         try:
-            await self.mq.connect()
+            await self.mq.connect(quick=True)
             # TODO - write our IP address to that line?
             my_ip = self.mq._sta_if.ifconfig()[0]
             txt = f"Conn: {my_ip}"
@@ -223,3 +251,6 @@ print("shouldn't get here")
 # here, we would then "import our app" and run it?
 # webrepl or what?
 
+
+## TODO: if it's 400ticks per RPM, tomorrow, run it for a minute, and see if you really get to a ~630*400 ticks?
+## ok, it's night time, I could/should be working on the leds, on the rest of it's operation, the stats, the controls?
