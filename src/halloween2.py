@@ -72,6 +72,7 @@ import encoder_portable
 import mp_neopixel
 
 import spider2
+import icolorsys
 
 class Board:
     """
@@ -224,6 +225,7 @@ class KLights:
             ("attack_simple1", self.run_attack_simple1),
             ("blue_dummy1", self.run_blue_dummy1),
             ("rainbow1", self.run_rainbow1),
+            ("vagrearg1", self.run_vagrearg1),
         ]
         self.off()
 
@@ -247,14 +249,42 @@ class KLights:
         asyncio.create_task(blah())
 
     def off(self):
+        if self.t_lights:
+            self.t_lights.cancel()
         self.helper_update_mq(dict(state="OFF"))
         self.np.fill((0, 0, 0))
         self.np.write()
 
     def on_soft(self):
+        if self.t_lights:
+            self.t_lights.cancel()
         self.helper_update_mq(dict(state="ON"))
         self.np.fill((255 // self.SCALE, 210//self.SCALE, 105 // self.SCALE))
         self.np.write()
+
+    async def run_vagrearg1(self, step_ms=50):
+        """Sample program from https://www.vagrearg.org/content/hsvrgb"""
+        hue = 0
+        val = 255
+        val_max = 255
+        hue_max = 255
+        direction = -3
+
+        while True:
+            # rotate hue circle
+            hue += 1
+            if hue > hue_max:
+                hue = 0
+
+            # vary value between 25-100% of value
+            val += direction
+            if val < val_max // 4 or val == val_max:
+                direction = -direction  # reverse
+
+            r, g, b = icolorsys.HSV_2_RGB((hue, 255, val))
+            self.np.fill((r//4, g//4, b//4))  # limit to half brightness at least...
+            self.np.write()
+            await asyncio.sleep_ms(step_ms)
 
     async def run_rainbow1(self, step_ms=100):
         """
