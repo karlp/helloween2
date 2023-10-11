@@ -11,7 +11,9 @@ except ImportError:
 
 
 import asyncio
+import binascii
 import json
+import machine
 import network
 import time
 
@@ -37,7 +39,10 @@ class Core:
         self.topic_status = "helloween/status"
         self.topic_state = "helloween/state"
         self.app = halloween2.KApp()
-        self.t_lights = None
+        self.uid_s = binascii.hexlify(machine.unique_id()).decode()
+        self.nodeid = f"helloween-{self.uid_s[:-4]}"
+        self.ha_prefix = "homeassistant"
+
 
     def start(self):
         self.tft.on()
@@ -46,7 +51,7 @@ class Core:
 
     def do_station(self):
         """ An alternate simple start, normally we let mqtt-as just take care of bizness"""
-        network.hostname("helloween")
+        network.hostname(self.nodeid)
         self.sta = network.WLAN(network.STA_IF)
         self.sta.active(False)  # reset interface
         self.sta.active(True)
@@ -82,7 +87,7 @@ class Core:
         mqtt-as wants to operate the network interface.  Seems less than ideal, but.. I don't reallllly mind.
         :return: never this starts a mq loop right here
         """
-        network.hostname("helloween")
+        network.hostname(self.nodeid)
         c = mqtt_as.config
         c["server"] = secrets.Mqtt.HOST
         c["user"] = secrets.Mqtt.USERNAME
@@ -122,71 +127,149 @@ class Core:
         spider: t: {self.app.spider.step_ms} pid= {self.app.spider.kp}/{self.app.spider.ki}/{self.app.spider.kd}
             lights: lol, nothing yet. detector: {self.app.people_sensor}"""
 
+    async def update_hass(self):
+        """
+        WIP for publishing discovery stuff to Home assistant
+        Intent is for... at least.
+        * one "switch" for master lights on/off
+        * one "switch" for master motor on/off
+        * one button to reset positions for spider...
+
+        extra goals
+        * "slider"  for "direct" motor control
+        * drop down or pattern selector or whatever or free text to set light patterns...
+        *
+        """
+        retain = True
+        qos = 0
+        # Note, we use "nodeid" but for ha purposes, this is the "objectid"
+        # base message...
+        msg = dict(
+            cmd_t="~/set",
+            stat_t="~/state",
+            schema="json",
+            unique_id="yes_please_uid",
+            dev=dict(mf="Ekta Labs",
+                     name="hell-o-ween",
+                     model="proto1",
+                     sw_version="0.3",
+                     identifiers=self.nodeid),  # Same nodeid again?
+        )
+
+        msg["name"] = "ze lights"
+        base = f"{self.ha_prefix}/light/{self.nodeid}"
+        msg["~"] = base
+        msg["effect"] = True
+        msg["effect_list"] = [x[0] for x in self.app.lights.known_patterns]
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+        # We _also_ need to tell the modules about their mq now!
+        self.app.lights.use_mq(self.mq, base)
+
+
+        # msg["name"] = "motor master"
+        # base = f"{self.ha_prefix}/switch/{self.nodeid}"
+        # msg["~"] = base
+        # await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+        # This gets discovery, but you still now need _state_ topics to make the ui nicer in HA
+
+    async def handle_ha_message(self, topic: str, msg: str, retained: bool):
+        """
+        Take care of HA messages and routing appropriately...
+        """
+        jmsg = json.loads(msg)
+        # just assume it worked.... (will we crash our tasks if we get a bad message? that should be protected right?)
+        # (if it does, put a try/finally in the top level message handler like normal please!)
+        if "light" in topic:
+            if jmsg["state"] == "OFF":
+                self.app.lights.off()
+                return
+            # ok, on, or effects?
+            effect = jmsg.get("effect", None)
+            if effect:
+                for e, f in self.app.lights.known_patterns:
+                    if effect == e:
+                        return self.app.lights.run_pattern(e, f)
+                print("should not be possible... out of date ha with app?!")
+            self.app.lights.on_soft()
+        else:
+            print("Unhandled HA update?", jmsg)
+
     async def handle_messages(self):
         async for topic, msg, retained in self.mq.queue:
             print(f'Topic: "{topic.decode()}" Message: "{msg.decode()}" Retained: {retained}')
             asyncio.create_task(self.pulse())
             topic = topic.decode()
             msg = msg.decode()
-            jmsg = None
-            if "json" in topic:
-                jmsg = json.loads(msg)
-            # FIXME - lots of safety validation on messages please!
-            # dispatch these all straight into their classes? or is control external?
-            # FIXME - I'm pretty sure I end up with multiple tsks running :|
-            if "lights" in topic:
-                if "pattern" in topic:
-                    for pat, f in self.app.lights.known_patterns:  # (string, func...) tuples?
-                        if pat in msg:
-                            # we made run_pattern take kwargs, can we send it jmsg perhaps?
-                            self.app.lights.run_pattern(f)
+            await self.handle_single_message(topic, msg, retained)
 
-                if "idle" in msg:
-                    print("(re)engaging idle lights")
-                    if self.app.lights.t_lights:
-                        self.app.lights.cancel()
-                    self.app.lights.t_lights = asyncio.create_task(self.app.lights.run_idle_simple())
-                if "off" in msg:
-                    if self.app.lights.t_lights:
-                        self.app.lights.cancel()
-                    self.app.lights.off()
-            if "lcd" in topic:
-                if "line2" in topic:
-                    self.helper_status(2, msg, clear="clear" in topic)
-            if "spider" in topic:
-                if "restart" in topic:
-                    # you may want to set more params here yo... json is inevitable!
-                    if jmsg:
-                        print("restarting pid with json message")
-                        self.app.spider.restart_pid(
-                            step_ms=jmsg.get("step_ms", None),
-                            speed_limit=jmsg.get("speed_limit", None),
-                            kp=jmsg.get("kp", None),
-                            ki=jmsg.get("ki", None),
-                            kd=jmsg.get("ki", None),
-                            )
-                    else:
-                        self.app.spider.restart_pid()
-                if "off" in topic:
-                    self.app.spider.t_pid.cancel()
-                    self.app.motor.stop()
-                if "speedlimit" in topic:
-                    param = float(msg)
-                    print("setting speed limit to ", param)
-                    self.app.spider.speed_limit = param
-                if "moveabs" in topic:
-                    param = int(msg)
-                    self.helper_status(2, f"moving to: {param}")
-                    self.app.spider.move_to(param)
-                if "movedelta" in topic:
-                    param = int(msg)
-                    dest = self.app.spider.pos_real + param
-                    self.helper_status(2, f"moving to: {dest}")
-                    self.app.spider.move_to(dest)
-                if "resetzero" in topic:
-                    self.app.spider.pos_real = self.app.spider.pos_goal = 0
-                if "dump" in topic:
-                    msg = "um, stuff?"
+    async def handle_single_message(self, topic: str, msg: str, retained: bool):
+        """Handle just a single message, allows returning nicely."""
+        if topic.startswith(self.ha_prefix):
+            return await self.handle_ha_message(topic, msg, retained)
+
+        jmsg = None
+        if "json" in topic:
+            jmsg = json.loads(msg)
+        # FIXME - lots of safety validation on messages please!
+        # dispatch these all straight into their classes? or is control external?
+        # FIXME - I'm pretty sure I end up with multiple tsks running :|
+        if "lights" in topic:
+            if "pattern" in topic:
+                for pat, f in self.app.lights.known_patterns:  # (string, func...) tuples?
+                    if pat in msg:
+                        # we made run_pattern take kwargs, can we send it jmsg perhaps?
+                        self.app.lights.run_pattern(pat, f)
+
+            if "idle" in msg:
+                print("(re)engaging idle lights")
+                if self.app.lights.t_lights:
+                    self.app.lights.cancel()
+                self.app.lights.t_lights = asyncio.create_task(self.app.lights.run_idle_simple())
+            if "off" in msg:
+                if self.app.lights.t_lights:
+                    self.app.lights.cancel()
+                self.app.lights.off()
+            if "on_soft" in msg:
+                if self.app.lights.t_lights:
+                    self.app.lights.cancel()
+                self.app.lights.on_soft()
+        if "lcd" in topic:
+            if "line2" in topic:
+                self.helper_status(2, msg, clear="clear" in topic)
+        if "spider" in topic:
+            if "restart" in topic:
+                # you may want to set more params here yo... json is inevitable!
+                if jmsg:
+                    print("restarting pid with json message")
+                    self.app.spider.restart_pid(
+                        step_ms=jmsg.get("step_ms", None),
+                        speed_limit=jmsg.get("speed_limit", None),
+                        kp=jmsg.get("kp", None),
+                        ki=jmsg.get("ki", None),
+                        kd=jmsg.get("ki", None),
+                        )
+                else:
+                    self.app.spider.restart_pid()
+            if "off" in topic:
+                self.app.spider.t_pid.cancel()
+                self.app.motor.stop()
+            if "speedlimit" in topic:
+                param = float(msg)
+                print("setting speed limit to ", param)
+                self.app.spider.speed_limit = param
+            if "moveabs" in topic:
+                param = int(msg)
+                self.helper_status(2, f"moving to: {param}")
+                self.app.spider.move_to(param)
+            if "movedelta" in topic:
+                param = int(msg)
+                dest = self.app.spider.pos_real + param
+                self.helper_status(2, f"moving to: {dest}")
+                self.app.spider.move_to(dest)
+            if "resetzero" in topic:
+                self.app.spider.pos_real = self.app.spider.pos_goal = 0
+            if "dump" in topic:
+                msg = "um, stuff?"
 
 
     async def down(self):
@@ -212,7 +295,9 @@ class Core:
             self.helper_status(1, txt)
             await self.mq.subscribe("helloween/cmd/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
             await self.mq.subscribe("helloween/cmdjson/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
+            await self.mq.subscribe(f"{self.ha_prefix}/+/{self.nodeid}/set", 0)  # some examples have an extra piece between node and set?!
             await self.mq.publish(self.topic_state, "on", True)
+            asyncio.create_task(self.update_hass())
 
     async def main_mq(self):
         print("starting async main!")

@@ -64,6 +64,7 @@ try:
 except:
     import uasyncio as asyncio
 
+import json
 import random
 
 import machine
@@ -208,11 +209,10 @@ class KLights:
     def __init__(self, strip: mp_neopixel.NeoPixel):
         self.np = strip
         self.np.ORDER = (0, 1, 2, 3)  # My ws2815 are actualyl rgb, not grb like classics.
-        self.available = asyncio.Event()
-        self.irq = asyncio.Event()
-        self.available.set()
         self.SCALE = 4
         self.t_lights = None
+        self.mq = None
+        self.mq_topic = None
         # "our" purple/green...
         self.C_PURPLE = (158//self.SCALE, 50//self.SCALE, 168//self.SCALE)
         self.C_GREEN = (50//self.SCALE, 168//self.SCALE, 131//self.SCALE)
@@ -225,14 +225,35 @@ class KLights:
             ("blue_dummy1", self.run_blue_dummy1),
             ("rainbow1", self.run_rainbow1),
         ]
+        self.off()
 
-    def run_pattern(self, func, **kwargs):
+    def run_pattern(self, name, func, **kwargs):
         if self.t_lights:
             self.t_lights.cancel()
+        self.helper_update_mq(dict(STATE="ON", effect=name))
         self.t_lights = asyncio.create_task(func(**kwargs))
 
+    def use_mq(self, mq, topic_base):
+        """Provide the base topic that this should use for updates/states"""
+        self.mq = mq
+        self.mq_topic = topic_base
+
+    def helper_update_mq(self, mydict):
+        """Let methods update mq, without boilerpalte"""
+        if not self.mq:
+            return
+        async def blah():
+            await self.mq.publish(f"{self.mq_topic}/state", json.dumps(mydict))
+        asyncio.create_task(blah())
+
     def off(self):
+        self.helper_update_mq(dict(state="OFF"))
         self.np.fill((0, 0, 0))
+        self.np.write()
+
+    def on_soft(self):
+        self.helper_update_mq(dict(state="ON"))
+        self.np.fill((255 // self.SCALE, 210//self.SCALE, 105 // self.SCALE))
         self.np.write()
 
     async def run_rainbow1(self, step_ms=100):
