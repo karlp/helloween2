@@ -1,12 +1,16 @@
 """
 Smaller test case for exploring the motor a little more
 """
+import json
+import time
+
 import halloween2
 
 import asyncio
 import machine
 
-class Spider2():
+
+class Spider2:
     """
     "spider" is perhaps a misnomer, this is more the actual pairing of the motor and encoder,
 
@@ -20,6 +24,8 @@ class Spider2():
         # weird as shit.  Use my measured empirical data first I suppose...
         # None of it matters anyway, until/unless I want to get to a point of expressing
         # commands in terms of actual distance to move.
+
+        self.master_enable = False
 
         self.pos_goal = 0
         self.in_position = True
@@ -39,6 +45,9 @@ class Spider2():
         self.ki = 0.003
         self.kd = 0.01
 
+        self.mq = None
+        self.mq_topic = None
+
     @property
     def pos_real(self):
         return self.encoder.position()
@@ -46,6 +55,14 @@ class Spider2():
     @pos_real.setter
     def pos_real(self, value):
         self.encoder.position(value)
+
+    def enable(self, val: bool):
+        self.master_enable = val
+        if self.master_enable:
+            self.restart_pid()
+        else:
+            self.t_pid.cancel()
+            self.motor.stop_brake()
 
     def move_to(self, position):
         """Requests a move to an absolute position"""
@@ -95,7 +112,7 @@ class Spider2():
                 out = 100 * self.speed_limit
             if out < -100 * self.speed_limit:
                 out = -100 * self.speed_limit
-            print("speed: ", out)  # you can scan this for overshoot if you like, but it's spammy
+            # print("speed: ", out)  # you can scan this for overshoot if you like, but it's spammy
             self.motor.speed(int(out))
             self.e_prev = e
             await asyncio.sleep_ms(self.step_ms)
@@ -124,8 +141,51 @@ class Spider2():
         self.e_prev = 0
         if self.t_pid:
             self.t_pid.cancel()
-        print("restarting with ", self.kp, self.ki, self.kd)
-        self.t_pid = asyncio.create_task(self.maintain_position())
+        if self.master_enable:
+            print("restarting with ", self.kp, self.ki, self.kd)
+            self.t_pid = asyncio.create_task(self.maintain_position())
+        else:
+            print("Ignoring restart, master disabled")
+
+    def use_mq(self, mq, mq_topic_base):
+        self.mq = mq
+        self.mq_topic = mq_topic_base
+        self.start_aio()
+
+    async def task_monitor(self):
+        async def post_mq_update():
+            if self.mq:
+                msg = dict(master="ON" if self.master_enable else "OFF",
+                           kp=self.kp,
+                           ki=self.ki,
+                           kd=self.kd,
+                           position=self.pos_real,
+                           in_position=self.in_position,
+                           goal=self.pos_goal)
+                await self.mq.publish(f"{self.mq_topic}/state", json.dumps(msg))
+
+        # send one when we start
+        await post_mq_update()
+        last_send = time.time()
+        last_pos = self.pos_real
+        POS_DELTA_MIN = 5
+        T_DELTA_MIN = 10
+        while True:
+            # Otherwise, send... either every 10? seconds, or if position has changed more than 5 in the last second?
+            await asyncio.sleep(1)
+            if abs(self.pos_real - last_pos) > POS_DELTA_MIN:
+                await post_mq_update()
+                last_send = time.time()
+            if time.time() - last_send > T_DELTA_MIN:
+                await post_mq_update()
+                last_send = time.time()
+
+    def start_aio(self):
+        # so, we want an update with _present_ values... "real soon"
+        # but then, we only want to bother sending stuff... when something's happening, and not too often?
+        # use timeout to send stuff maybe?
+        asyncio.create_task(self.task_monitor())
+
 
 
 def MakeSpider():

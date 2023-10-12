@@ -129,16 +129,21 @@ class Core:
 
     async def update_hass(self):
         """
-        WIP for publishing discovery stuff to Home assistant
+        Publish all the discovery information required for Home Assistant.
+        Also, notify all components of the MQ details they need for feeding status back.
+        
         Intent is for... at least.
-        * one "switch" for master lights on/off
-        * one "switch" for master motor on/off
-        * one button to reset positions for spider...
+        * one "switch" for master lights on/off  <done>
+        * one "switch" for master motor on/off <done>
+        * one button to reset positions for spider...  <done>
 
         extra goals
-        * "slider"  for "direct" motor control
-        * drop down or pattern selector or whatever or free text to set light patterns...
+        * "slider"  for "direct" motor control (have a box with sliders, done)
+        * drop down or pattern selector or whatever or free text to set light patterns...  <done>
         *
+
+        TODO - must uids be unique within a node? or unique across the entire HASS environment?
+        (I don't feel like making real guids or anything...)
         """
         retain = True
         qos = 0
@@ -148,7 +153,6 @@ class Core:
             cmd_t="~/set",
             stat_t="~/state",
             schema="json",
-            unique_id="yes_please_uid",
             availability_topic=self.topic_state,
             dev=dict(mf="Ekta Labs",
                      name="hell-o-ween",
@@ -158,42 +162,199 @@ class Core:
         )
 
         msg["name"] = "ze lights"
-        base = f"{self.ha_prefix}/light/{self.nodeid}"
+        uid = "uid_strip_lights"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/light/{self.nodeid}/{uid}"
         msg["~"] = base
         msg["effect"] = True
         msg["effect_list"] = [x[0] for x in self.app.lights.known_patterns]
         await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
         # We _also_ need to tell the modules about their mq now!
         self.app.lights.use_mq(self.mq, base)
+        del msg["effect"]
+        del msg["effect_list"]
 
 
-        # msg["name"] = "motor master"
-        # base = f"{self.ha_prefix}/switch/{self.nodeid}"
-        # msg["~"] = base
-        # await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
-        # This gets discovery, but you still now need _state_ topics to make the ui nicer in HA
+        ## people sensor  This one works, with expiry and stuff, just the detector itself is busted.
+        msg["name"] = "people detector"
+        uid = "uid_people_detector"
+        base = f"{self.ha_prefix}/sensor/{self.nodeid}/{uid}"
+        msg["~"] = base
+        msg["expire_after"] = 10
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+        self.app.people_sensor.use_mq(self.mq, base)
+        del msg["expire_after"]
+
+
+        ### Button to reset positions
+        msg["name"] = "reset position"
+        uid = "uid_btn_reset"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/button/{self.nodeid}/{uid}"
+        msg["~"] = base
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+
+        msg["name"] = "Up 100"
+        uid = "uid_btn_up100"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/button/{self.nodeid}/{uid}"
+        msg["~"] = base
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+
+        msg["name"] = "Down 100"
+        uid = "uid_btn_down100"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/button/{self.nodeid}/{uid}"
+        msg["~"] = base
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+
+        ### Top level motor switch...
+        msg["name"] = "motor master"
+        uid = "uid_sw_mmaster"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/switch/{self.nodeid}"
+        msg["stat_t"] = f"{self.ha_prefix}/sensor/{self.nodeid}/motor_state/state"
+        msg["cmd_t"] = f"~/{uid}/set"
+        msg["value_template"] = "{{value_json.master}}"
+        msg["~"] = base
+        await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+
+        ## motor numbers too please...
+        ## FIXME - it's probably worth having a whole separate routine for the motor params, to avoid this crap
+        # we probably want to have these get their state from a shared message with position or something
+        # so I don't have to spam all those messages separately?
+        msg["name"] = "pid term P"
+        uid = "uid_termp"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/number/{self.nodeid}"
+        msg["stat_t"] = f"{self.ha_prefix}/sensor/{self.nodeid}/motor_state/state"
+        msg["cmd_t"] = f"~/{uid}/set"
+        msg["value_template"] = "{{value_json.kp}}"
+        msg["min"] = 0
+        msg["max"] = 5
+        msg["mode"] = "box"
+        msg["step"] = 0.01
+        msg["~"] = base
+        await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+        msg["name"] = "pid term I"
+        uid = "uid_termi"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/number/{self.nodeid}"
+        msg["stat_t"] = f"{self.ha_prefix}/sensor/{self.nodeid}/motor_state/state"
+        msg["cmd_t"] = f"~/{uid}/set"
+        msg["value_template"] = "{{value_json.ki}}"
+        msg["min"] = 0
+        msg["max"] = 1
+        msg["mode"] = "box"
+        msg["step"] = 0.001
+        msg["~"] = base
+        await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+        msg["name"] = "pid term D"
+        uid = "uid_termd"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/number/{self.nodeid}"
+        msg["stat_t"] = f"{self.ha_prefix}/sensor/{self.nodeid}/motor_state/state"
+        msg["cmd_t"] = f"~/{uid}/set"
+        msg["value_template"] = "{{value_json.kd}}"
+        msg["min"] = 0
+        msg["max"] = 1
+        msg["mode"] = "box"
+        msg["step"] = 0.001
+        msg["~"] = base
+        await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+        msg["name"] = "position goal"
+        uid = "uid_pos_goal"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/number/{self.nodeid}"
+        msg["stat_t"] = f"{self.ha_prefix}/sensor/{self.nodeid}/motor_state/state"
+        msg["cmd_t"] = f"~/{uid}/set"
+        msg["value_template"] = "{{value_json.goal}}"
+        msg["min"] = -10000
+        msg["max"] = 10000
+        msg["mode"] = "box"
+        msg["step"] = 5
+        msg["~"] = base
+        await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+        del msg["min"]
+        del msg["max"]
+        del msg["mode"]
+        del msg["step"]
+
+        msg["name"] = "position real"
+        uid = "uid_pos_real"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/sensor/{self.nodeid}"
+        msg["stat_t"] = f"~/motor_state/state"
+        msg["value_template"] = "{{value_json.position}}"
+        msg["~"] = base
+        await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+
+
+        # Reset stat_t/cmd_t too!
+        msg["cmd_t"] = "~/set"
+        msg["stat_t"] = "~/state"
+        self.app.spider.use_mq(self.mq, f"{base}/motor_state")
+
+
 
     async def handle_ha_message(self, topic: str, msg: str, retained: bool):
         """
         Take care of HA messages and routing appropriately...
         """
-        jmsg = json.loads(msg)
         # just assume it worked.... (will we crash our tasks if we get a bad message? that should be protected right?)
         # (if it does, put a try/finally in the top level message handler like normal please!)
-        if "light" in topic:
-            if jmsg["state"] == "OFF":
-                self.app.lights.off()
-                return
-            # ok, on, or effects?
-            effect = jmsg.get("effect", None)
-            if effect:
-                for e, f in self.app.lights.known_patterns:
-                    if effect == e:
-                        return self.app.lights.run_pattern(e, f)
-                print("should not be possible... out of date ha with app?!")
-            self.app.lights.on_soft()
+        if topic.startswith(f"{self.ha_prefix}/light"):
+            if "uid_strip_lights" in topic:
+                jmsg = json.loads(msg)
+                if jmsg["state"] == "OFF":
+                    self.app.lights.off()
+                    return
+                # ok, on, or effects?
+                effect = jmsg.get("effect", None)
+                if effect:
+                    for e, f in self.app.lights.known_patterns:
+                        if effect == e:
+                            return self.app.lights.run_pattern(e, f)
+                    print("should not be possible... out of date ha with app?!")
+                self.app.lights.on_soft()
+            else:
+                print("UNHANDLED LIGHTS")
+        elif topic.startswith(f"{self.ha_prefix}/switch"):
+            if "uid_sw_mmaster" in topic:
+                self.app.spider.enable(msg == "ON")
+            else:
+                print("UNHANDLED SWITCH")
+        elif topic.startswith(f"{self.ha_prefix}/button"):
+            print("handling button from HA:")
+            if "uid_btn_up100" in topic:
+                pos = self.app.spider.pos_real # hrm, goal?
+                self.app.spider.move_to(pos + 100)
+                self.app.spider.restart_pid()
+            elif "uid_btn_down100" in topic:
+                pos = self.app.spider.pos_real
+                self.app.spider.move_to(pos - 100)
+                self.app.spider.restart_pid()
+            elif "uid_btn_reset" in topic:
+                self.app.spider.pos_real = self.app.spider.pos_goal = 0
+            else:
+                print("UNHANDLED BUTTON")
+        elif topic.startswith(f"{self.ha_prefix}/number"):
+            if "uid_termp" in topic:
+                term = float(msg)
+                self.app.spider.restart_pid(kp=term)
+            elif "uid_termi" in topic:
+                term = float(msg)
+                self.app.spider.restart_pid(ki=term)
+            elif "uid_termd" in topic:
+                term = float(msg)
+                self.app.spider.restart_pid(kd=term)
+            elif "uid_pos_goal" in topic:
+                term = int(msg)
+                self.app.spider.move_to(term)
+            else:
+                print("UNHANDLED NUMBER")
         else:
-            print("Unhandled HA update?", jmsg)
+            print("Unhandled HA prefix entirely?", msg)
 
     async def handle_messages(self):
         async for topic, msg, retained in self.mq.queue:
@@ -296,7 +457,9 @@ class Core:
             self.helper_status(1, txt)
             await self.mq.subscribe("helloween/cmd/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
             await self.mq.subscribe("helloween/cmdjson/#", 0)  # yeah, we actually aren't designing for a qos1 required environment
-            await self.mq.subscribe(f"{self.ha_prefix}/+/{self.nodeid}/set", 0)  # some examples have an extra piece between node and set?!
+            # no, just accept node + "entity" uids..
+            #await self.mq.subscribe(f"{self.ha_prefix}/+/{self.nodeid}/set", 0)
+            await self.mq.subscribe(f"{self.ha_prefix}/+/{self.nodeid}/+/set", 0)
             await self.mq.publish(self.topic_state, "online", True)
             asyncio.create_task(self.update_hass())
 
@@ -316,14 +479,21 @@ class Core:
         for t in [self.up, self.down, self.handle_messages]:
             asyncio.create_task(t())
 
+        async def xxx_unusuable():
+            # mp doesn't have all_tasks, nor names on tasks...
+            # so forget about doing it like this...
+            tn: asyncio.Task = asyncio.current_task()
+            tset = asyncio.all_tasks()
+            print(f"current: {tn}, {tn.get_name()}set={tset}")
+
         i = 0
         while True:
             await asyncio.sleep(2)
             i += 1
-            print("bleep bloop")
+            print("bleep bloop", self.app.spider.kp, self.app.spider.ki, self.app.spider.kd)
             self.helper_status(1, f"{self.app.spider.pos_goal} / {self.app.spider.pos_real}")
             #await self.mq.publish(self.topic_status, f"{i}, outs: {self.mq_down_events}")
-            await self.mq.publish(self.topic_status, self.generate_status_msg())
+            #await self.mq.publish(self.topic_status, self.generate_status_msg())
 
 
 

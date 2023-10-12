@@ -198,10 +198,35 @@ class KPeopleSensor:
         self.pin = pin
         self.found = asyncio.ThreadSafeFlag()  # From isr_rules.html....
         self.pin.irq(self._handler, trigger=machine.Pin.IRQ_FALLING)
+        self.mq = None
+        self.mq_topic = None
 
     def _handler(self, p):
-        print("handler...", p.value())
+        # I _should_ only get an IRQ when it actually falls, but have been unable to figure
+        # out why I get extra... It works just fine
+        #print("handler...", p.value())  # GAH WHY SO MUCH NOISE!
         self.found.set()
+
+    def use_mq(self, mq, mq_topic_base):
+        self.mq = mq
+        self.mq_topic = mq_topic_base
+        self.start_aio()
+
+    async def task_monitor(self):
+        async def post_mq_update():
+            if self.mq:
+                await self.mq.publish(f"{self.mq_topic}/state", "ON")
+
+        while True:
+            await self.found.wait()
+            print("DETECTOR", self.pin.value())
+            asyncio.create_task(post_mq_update())
+
+    def start_aio(self):
+        # FIXME - need to figure out what the hell is wrong one day!
+        # asyncio.create_task(self.task_monitor())
+        pass
+
 
 class KLights:
     """
@@ -232,13 +257,17 @@ class KLights:
     def run_pattern(self, name, func, **kwargs):
         if self.t_lights:
             self.t_lights.cancel()
-        self.helper_update_mq(dict(STATE="ON", effect=name))
+        self.helper_update_mq(dict(state="ON", effect=name))
         self.t_lights = asyncio.create_task(func(**kwargs))
 
     def use_mq(self, mq, topic_base):
         """Provide the base topic that this should use for updates/states"""
         self.mq = mq
         self.mq_topic = topic_base
+        # also, fire of an update
+        # ummm, actually, we don't have state... just turnourselves off when we are requested to start using mq?
+        # gud enuff for gubmint work...
+        self.off()
 
     def helper_update_mq(self, mydict):
         """Let methods update mq, without boilerpalte"""
@@ -428,7 +457,7 @@ class KApp():
             # notify internet about scaring another person?!!!
             print("main found a person!")
             # add a lighting task here...
-            t_attack = asyncio.create_task(self.lights.run_attack_simple())
+            t_attack = asyncio.create_task(self.lights.run_attack_simple1())
             print("running attack mode for XXX seconds before sleeping before allowing a new person")
             await asyncio.sleep(5)
             t_attack.cancel()
@@ -437,9 +466,21 @@ class KApp():
 
 
 def t3():
+    """This works fine, no weird spurious irq handlers. so why do we get it with our own app?!"""
     loop = asyncio.get_event_loop()
     app = KApp()
     loop.run_until_complete(app.wait_for_stuff())
+
+
+def tps_2():
+    loop = asyncio.get_event_loop()
+    app = KApp()
+    app.people_sensor.start_aio()
+    async def wot():
+        while True:
+            print("bleh")
+            await asyncio.sleep_ms(2000)
+    loop.run_until_complete(wot())
 
 
 def t4():
