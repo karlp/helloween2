@@ -224,7 +224,7 @@ class KPeopleSensor:
 
     def start_aio(self):
         # FIXME - need to figure out what the hell is wrong one day!
-        # asyncio.create_task(self.task_monitor())
+        asyncio.create_task(self.task_monitor())
         pass
 
 
