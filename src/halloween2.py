@@ -84,8 +84,8 @@ class Board:
     ENCODER1 = machine.Pin(21)
     ENCODER2 = machine.Pin(22)
     STRIP = machine.Pin(17)
-    DETECTOR = machine.Pin(36, machine.Pin.IN)  # input only, but that's fine for this one
-
+    #DETECTOR = machine.Pin(36, machine.Pin.IN)  # input only, but that's fine for this one
+    DETECTOR = machine.Pin(25, machine.Pin.IN)  # 36 was busted?!
 
 
 class KEncoder(encoder_portable.Encoder):
