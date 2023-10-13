@@ -1,4 +1,35 @@
+"""
+On GPIO 36 and 39 (only ones I've found so far) _and_ only if wifi is active,
+I get spurious IRQs around every 100ms, but sometimes on a multiple of that.
 
+example output:
+
+bleh
+Pin(36) del: 303: DETECTOR 1
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 204: DETECTOR 1
+Pin(36) del: 103: DETECTOR 1
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 103: DETECTOR 1
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 103: DETECTOR 1
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 205: DETECTOR 1
+Pin(36) del: 410: DETECTOR 1
+Pin(36) del: 204: DETECTOR 1
+Pin(36) del: 103: DETECTOR 1
+bleh
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 103: DETECTOR 1
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 103: DETECTOR 1
+Pin(36) del: 102: DETECTOR 1
+Pin(36) del: 103: DETECTOR 1
+Pin(36) del: 204: DETECTOR 1
+
+"""
 import asyncio
 import machine
 import network
@@ -28,7 +59,7 @@ class KPeopleSensor:
         while True:
             await self.found.wait()
             now = time.ticks_ms()
-            print(f"del: {now - last}: DETECTOR", self.pin.value())
+            print(f"{self.pin} del: {now - last}: DETECTOR", self.pin.value())
             last = now
 
     def start_aio(self):
@@ -39,9 +70,20 @@ class Core:
     def __init__(self):
         #pin = machine.Pin.board.DETECTOR
         # Fails on pin 36, works on pin 25...
-        pin_n = 36
-        pin = machine.Pin(pin_n, machine.Pin.IN)
-        self.ps = KPeopleSensor(pin)
+        # pin_n = 36
+        # pin = machine.Pin(pin_n, machine.Pin.IN)
+        # self.ps = KPeopleSensor(pin)
+
+        # try a bunch of pins.
+        self.all = [
+            KPeopleSensor(machine.Pin(36, machine.Pin.IN)),
+            KPeopleSensor(machine.Pin(37, machine.Pin.IN)),
+            KPeopleSensor(machine.Pin(38, machine.Pin.IN)),
+            KPeopleSensor(machine.Pin(39, machine.Pin.IN)),
+            KPeopleSensor(machine.Pin(25, machine.Pin.IN)),
+            KPeopleSensor(machine.Pin(26, machine.Pin.IN)),
+            KPeopleSensor(machine.Pin(27, machine.Pin.IN)),
+        ]
 
     def do_station(self):
         self.sta = network.WLAN(network.STA_IF)
@@ -62,7 +104,8 @@ class Core:
                 print("bleh")
                 await asyncio.sleep_ms(2000)
         try:
-            self.ps.start_aio()
+            for ps in self.all:
+                ps.start_aio()
             asyncio.run(wot())
         finally:
             print("exploded, restarting!")
