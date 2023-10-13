@@ -37,8 +37,10 @@ class KPeopleSensor:
 
 class Core:
     def __init__(self):
-        pin = machine.Pin.board.DETECTOR
-        pin.init(pin.IN)
+        #pin = machine.Pin.board.DETECTOR
+        # Fails on pin 36, works on pin 25...
+        pin_n = 36
+        pin = machine.Pin(pin_n, machine.Pin.IN)
         self.ps = KPeopleSensor(pin)
 
     def do_station(self):
