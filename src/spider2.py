@@ -98,15 +98,34 @@ class Spider2:
 
     async def maintain_position(self):
         """Uses a PID loop to maintain any given position"""
+        MIN_MOTOR_THRESHOLD = 8 // 2 # so, it needs 8 to turn it frrom still, but can we go a bit lower when we're running?
+        CLOSE_ENOUGH = 4
         while True:
             e = self.pos_goal - self.pos_real
-            self.in_position = abs(e) <= 1  # Good enough?
+            self.in_position = abs(e) <= CLOSE_ENOUGH and abs(self.e_prev) <= CLOSE_ENOUGH
             # ideally, we should get a real time here, rather than assuming asyncio gave us precise timings?
             delta_t = self.step_ms / 1000  # careful, either always use ms, or always seconds....
             dedt = (e - self.e_prev) / delta_t
             self.eint = self.eint + e * delta_t
 
-            out = self.kp * e + self.ki * self.eint + self.kd * dedt
+            if self.in_position:
+                # yeah baby, this is enough, just stop here.  pid tuning sounds gross
+                # we still have encoder absolute positioning, so we still know where we are _truly_
+                # and can still use precise numbers to always move to "close enough" to the same place time after time....
+                out = 0
+            else:
+                out = self.kp * e + self.ki * self.eint + self.kd * dedt
+            # so, we may have set a slow speed as we narrow in our final goal.
+            # but, as we know, lowest speeds won't even turn the motor, so we need push it up.
+            # but, we don't want to just lift up the slow speeds, so we need to remap by our
+            # known minimum range.
+            # but, shortcut, can we just add the starting threshold as a fixed offset??
+            # out += MIN_MOTOR_THRESHOLD if out > 0 else -MIN_MOTOR_THRESHOLD
+            # no, that didn't work well...
+            if out > 0 and out < MIN_MOTOR_THRESHOLD:
+                out = MIN_MOTOR_THRESHOLD
+            if out < 0 and out > -MIN_MOTOR_THRESHOLD:
+                out = -MIN_MOTOR_THRESHOLD
             # range clamp to +- 100
             if out > 100 * self.speed_limit:
                 out = 100 * self.speed_limit
