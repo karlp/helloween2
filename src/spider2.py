@@ -43,20 +43,21 @@ class Spider2:
         # Defaults empirically determined for the raw axel flag...
         #pid= 0.8/0.001/0.001 nope..
 
-        self.kp = 0.6
-        self.ki = 0.003
-        self.kd = 0.01
+        # Updates with real spider,
+        self.kp = 0.8
+        self.ki = 0.005
+        self.kd = 0.02
 
         self.mq = None
         self.mq_topic = None
 
     @property
     def pos_real(self):
-        return self.encoder.position()
+        return self.encoder.value()
 
     @pos_real.setter
     def pos_real(self, value):
-        self.encoder.position(value)
+        self.encoder.value(value)
 
     def enable(self, val: bool):
         self.master_enable = val
@@ -251,7 +252,8 @@ class Spider2:
 
 def MakeSpider():
     motor = halloween2.KMotor(machine.Pin.board.MOTOR1, machine.Pin.board.MOTOR2)
-    encoder = halloween2.KEncoder(machine.Pin.board.ENCODER1, machine.Pin.board.ENCODER2)
+    #encoder = halloween2.KEncoderPortabl(machine.Pin.board.ENCODER1, machine.Pin.board.ENCODER2)
+    encoder = halloween2.KEncoder(0, machine.Pin.board.ENCODER1, machine.Pin.board.ENCODER2)
 
     return Spider2(motor, encoder)
 

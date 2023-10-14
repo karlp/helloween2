@@ -88,7 +88,10 @@ class Board:
     DETECTOR = machine.Pin(25, machine.Pin.IN)  # 36 was busted?!
 
 
-class KEncoder(encoder_portable.Encoder):
+class KEncoderPortable(encoder_portable.Encoder):
+    pass
+
+class KEncoder(machine.Encoder):
     pass
 
 
@@ -421,7 +424,7 @@ class KApp():
     """
     def __init__(self):
         self.motor = KMotor(Board.MOTOR1, Board.MOTOR2)
-        self.mencoder = KEncoder(Board.ENCODER1, Board.ENCODER2)
+        self.mencoder = KEncoder(0, Board.ENCODER1, Board.ENCODER2)
         self.spider = spider2.Spider2(self.motor, self.mencoder)
         self.lights = KLights(mp_neopixel.NeoPixel(Board.STRIP, 300))
         self.people_sensor = KPeopleSensor(Board.DETECTOR)
