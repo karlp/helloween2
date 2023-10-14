@@ -110,12 +110,12 @@ class Spider2:
         sock.setblocking(False)
         addr = socket.getaddrinfo("192.168.88.124", 4242)[0][-1]
         def trace_udp(now, pos, goal, out):
-            #now = time.ticks_us()
-            #x = sock.sendto("asdf", ("192.168.88.124", 4242))
-            b = struct.pack("<iiif", now, pos, goal, out)
-            sock.sendto(b, addr)
-            #delta = time.ticks_us() - now
-            #print(f"udp sent: {x} bytes in {delta} usecs")
+            try:
+                b = struct.pack("<iiif", now, pos, goal, out)
+                sock.sendto(b, addr)
+            except:
+                # We've hit OSError: [Errno 12] ENOMEM here, and we do _not_ want task death!
+                pass
 
         while True:
             now = time.ticks_ms()
