@@ -1,12 +1,14 @@
 """
 Smaller test case for exploring the motor a little more
 """
+import asyncio
 import json
+import socket
+import struct
 import time
 
 import halloween2
 
-import asyncio
 import machine
 
 
@@ -100,13 +102,40 @@ class Spider2:
         """Uses a PID loop to maintain any given position"""
         MIN_MOTOR_THRESHOLD = 8 // 2 # so, it needs 8 to turn it frrom still, but can we go a bit lower when we're running?
         CLOSE_ENOUGH = 4
+        last = time.ticks_ms() - self.step_ms # just for initial condition
+
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setblocking(False)
+        addr = socket.getaddrinfo("192.168.88.124", 4242)[0][-1]
+        def trace_udp(now, pos, goal, out):
+            #now = time.ticks_us()
+            #x = sock.sendto("asdf", ("192.168.88.124", 4242))
+            b = struct.pack("<iiif", now, pos, goal, out)
+            sock.sendto(b, addr)
+            #delta = time.ticks_us() - now
+            #print(f"udp sent: {x} bytes in {delta} usecs")
+
         while True:
-            e = self.pos_goal - self.pos_real
+            now = time.ticks_ms()
+            delta_t = now - last
+            # if delta_t > self.step_ms * 2:
+            #     print("long loop: ", delta_t)
+            last = now
+            pos = self.pos_real
+            e = self.pos_goal - pos
             self.in_position = abs(e) <= CLOSE_ENOUGH and abs(self.e_prev) <= CLOSE_ENOUGH
             # ideally, we should get a real time here, rather than assuming asyncio gave us precise timings?
-            delta_t = self.step_ms / 1000  # careful, either always use ms, or always seconds....
-            dedt = (e - self.e_prev) / delta_t
-            self.eint = self.eint + e * delta_t
+            # Could use real time here?
+            #delta_ts = self.step_ms / 1000  # careful, either always use ms, or always seconds....
+            delta_ts = delta_t / 1000
+            dedt = (e - self.e_prev) / delta_ts
+            self.eint = self.eint + e * delta_ts
+
+            # lol, magic! if we're going down, use a way smaller P term.
+            # kkp = self.kp
+            # if e > 0:
+            #     kkp = self.kp / 3
 
             if self.in_position:
                 # yeah baby, this is enough, just stop here.  pid tuning sounds gross
@@ -115,6 +144,8 @@ class Spider2:
                 out = 0
             else:
                 out = self.kp * e + self.ki * self.eint + self.kd * dedt
+                # out = kkp * e + self.ki * self.eint + self.kd * dedt
+
             # so, we may have set a slow speed as we narrow in our final goal.
             # but, as we know, lowest speeds won't even turn the motor, so we need push it up.
             # but, we don't want to just lift up the slow speeds, so we need to remap by our
@@ -122,16 +153,27 @@ class Spider2:
             # but, shortcut, can we just add the starting threshold as a fixed offset??
             # out += MIN_MOTOR_THRESHOLD if out > 0 else -MIN_MOTOR_THRESHOLD
             # no, that didn't work well...
+
             if out > 0 and out < MIN_MOTOR_THRESHOLD:
                 out = MIN_MOTOR_THRESHOLD
             if out < 0 and out > -MIN_MOTOR_THRESHOLD:
                 out = -MIN_MOTOR_THRESHOLD
+            # limit down speed, we want to lower, not drop...
+            if out < 0 and out < -10:
+                out = -10
+
             # range clamp to +- 100
             if out > 100 * self.speed_limit:
                 out = 100 * self.speed_limit
             if out < -100 * self.speed_limit:
                 out = -100 * self.speed_limit
-            # print("speed: ", out)  # you can scan this for overshoot if you like, but it's spammy
+            #print("speed: ", out)  # you can scan this for overshoot if you like, but it's spammy
+            # This is absolutely not fast enough
+            # if self.mq:
+            #     asyncio.create_task(self.mq.publish("bin/pid", f"{now},{pos},{self.pos_goal},{out}"))
+            if not self.in_position:
+                trace_udp(now, pos, self.pos_goal, out)
+
             self.motor.speed(int(out))
             self.e_prev = e
             await asyncio.sleep_ms(self.step_ms)
