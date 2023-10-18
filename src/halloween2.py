@@ -85,7 +85,8 @@ class Board:
     ENCODER2 = machine.Pin(22)
     STRIP = machine.Pin(17)
     #DETECTOR = machine.Pin(36, machine.Pin.IN)  # input only, but that's fine for this one
-    DETECTOR = machine.Pin(25, machine.Pin.IN)  # 36 was busted?!
+    DETECTOR_RADAR = machine.Pin(25, machine.Pin.IN)  # 36 was busted?!
+    DETECTOR_PIR = machine.Pin(26, machine.Pin.IN)  # 36 was busted?!
 
 
 class KEncoderPortable(encoder_portable.Encoder):
@@ -197,17 +198,18 @@ class KPeopleSensor:
     """
     Wraps up whatever sensor we end up using, maybe even multiple...
     """
-    def __init__(self, pin):
+    def __init__(self, pin, name=None, trig=machine.Pin.IRQ_FALLING):
         self.pin = pin
+        self.name = name
         self.found = asyncio.ThreadSafeFlag()  # From isr_rules.html....
-        self.pin.irq(self._handler, trigger=machine.Pin.IRQ_FALLING)
+        self.pin.irq(self._handler, trigger=trig)
         self.mq = None
         self.mq_topic = None
 
     def _handler(self, p):
         # I _should_ only get an IRQ when it actually falls, but have been unable to figure
         # out why I get extra... It works just fine
-        #print("handler...", p.value())  # GAH WHY SO MUCH NOISE!
+        #print("handler...", self.name, p.value())  # GAH WHY SO MUCH NOISE!
         self.found.set()
 
     def use_mq(self, mq, mq_topic_base):
@@ -220,10 +222,12 @@ class KPeopleSensor:
             if self.mq:
                 await self.mq.publish(f"{self.mq_topic}/state", "ON")
 
+        print("starting monitor for ", self.name)
         while True:
             await self.found.wait()
-            print("DETECTOR", self.pin.value())
+            print(f"DET<{self.name}>", self.pin.value())
             asyncio.create_task(post_mq_update())
+        print("um, we finished?!", self.name)
 
     def start_aio(self):
         # FIXME - need to figure out what the hell is wrong one day!
@@ -427,7 +431,8 @@ class KApp():
         self.mencoder = KEncoder(0, Board.ENCODER1, Board.ENCODER2)
         self.spider = spider2.Spider2(self.motor, self.mencoder)
         self.lights = KLights(mp_neopixel.NeoPixel(Board.STRIP, 300))
-        self.people_sensor = KPeopleSensor(Board.DETECTOR)
+        self.people_sensor_rad = KPeopleSensor(Board.DETECTOR_RADAR, "rad")
+        self.people_sensor_pir = KPeopleSensor(Board.DETECTOR_PIR, "pir")
 
 
     async def start_over(self):
@@ -455,12 +460,23 @@ class KApp():
             print("(RE)starting outer loop")
             #await self.start_over()
             t_idle = asyncio.create_task(self.lights.run_idle_simple())
-            await self.people_sensor.found.wait()
+
+            # lol, no .wait in microptyhon...
+            # await asyncio.wait([
+            #     self.people_sensor_rad.found.wait(),
+            #     self.people_sensor_pir.found.wait(),
+            # ], return_when=asyncio.FIRST_COMPLETED)
+            # so we'll just wait for one for right now...
+            await self.people_sensor_rad.found.wait()
             t_idle.cancel()
             # notify internet about scaring another person?!!!
             print("main found a person!")
-            # add a lighting task here...
             t_attack = asyncio.create_task(self.lights.run_attack_simple1())
+            self.spider.add_move_q(800, max_speed=10, hold_ms=500)
+            self.spider.add_move_q(200, max_speed=100, hold_ms=500)
+            self.spider.add_move_q(800, max_speed=100, hold_ms=500)
+            self.spider.add_move_q(200, max_speed=10)
+
             print("running attack mode for XXX seconds before sleeping before allowing a new person")
             await asyncio.sleep(5)
             t_attack.cancel()
@@ -485,7 +501,6 @@ def tps_2():
             await asyncio.sleep_ms(2000)
     loop.run_until_complete(wot())
 
-
 def t4():
     loop = asyncio.get_event_loop()
     app = KApp()
@@ -494,3 +509,14 @@ def t4():
     app.motor.stop()
     # ok, assume position is at "zero"
 
+
+def t5():
+    loop = asyncio.get_event_loop()
+    app = KApp()
+    app.people_sensor_rad.start_aio()
+    app.people_sensor_pir.start_aio()
+    async def wot():
+        while True:
+            print("bleh")
+            await asyncio.sleep_ms(2000)
+    loop.run_until_complete(wot())

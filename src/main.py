@@ -175,14 +175,35 @@ class Core:
         del msg["effect_list"]
 
 
-        ## people sensor  This one works, with expiry and stuff, just the detector itself is busted.
-        msg["name"] = "people detector"
-        uid = "uid_people_detector"
+        ## people sensors  This one works, with expiry and stuff, just the detector itself is busted.
+        msg["name"] = "people detector rad"
+        uid = "uid_people_detector_rad"
+        msg["unique_id"] = uid
         base = f"{self.ha_prefix}/sensor/{self.nodeid}/{uid}"
         msg["~"] = base
         msg["expire_after"] = 10
         await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
-        self.app.people_sensor.use_mq(self.mq, base)
+        self.app.people_sensor_rad.use_mq(self.mq, base)
+
+        msg["name"] = "people detector pir"
+        uid = "uid_people_detector_pir"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/sensor/{self.nodeid}/{uid}"
+        msg["~"] = base
+        msg["expire_after"] = 10
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+        self.app.people_sensor_pir.use_mq(self.mq, base)
+
+        msg["name"] = "In Position"
+        uid = "uid_in_position"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/sensor/{self.nodeid}/{uid}"
+        msg["~"] = base
+        msg["expire_after"] = 10
+        msg["stat_t"] = f"{self.ha_prefix}/sensor/{self.nodeid}/motor_state/state"
+        msg["value_template"] = "{{value_json.in_position}}"
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+
         del msg["expire_after"]
 
 
@@ -203,6 +224,20 @@ class Core:
 
         msg["name"] = "Down 100"
         uid = "uid_btn_down100"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/button/{self.nodeid}/{uid}"
+        msg["~"] = base
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+
+        msg["name"] = "Trigger Person"
+        uid = "uid_btn_manual_trigger"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/button/{self.nodeid}/{uid}"
+        msg["~"] = base
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+
+        msg["name"] = "Test Action"
+        uid = "uid_btn_test_action"
         msg["unique_id"] = uid
         base = f"{self.ha_prefix}/button/{self.nodeid}/{uid}"
         msg["~"] = base
@@ -336,6 +371,19 @@ class Core:
                 self.app.spider.restart_pid()
             elif "uid_btn_reset" in topic:
                 self.app.spider.pos_real = self.app.spider.pos_goal = 0
+            elif "uid_btn_manual_trigger" in topic:
+                # FIXME - trigger the application pieces!
+                pass
+            elif "uid_btn_test_action" in topic:
+                ### Whateve we feel like right now.
+                print("ok, karls test action...")
+                #self.app.spider.move_q = []
+                #self.app.spider.move_to(800)
+                #self.app.spider.add_move_q_raw(800)
+                self.app.spider.add_move_q_raw(800, 20, 1500)
+                self.app.spider.add_move_q_raw(200, None, 1500)
+                self.app.spider.add_move_q_raw(800, 100)
+
             else:
                 print("UNHANDLED BUTTON")
         elif topic.startswith(f"{self.ha_prefix}/number"):
@@ -428,6 +476,10 @@ class Core:
                 dest = self.app.spider.pos_real + param
                 self.helper_status(2, f"moving to: {dest}")
                 self.app.spider.move_to(dest)
+            if "movetask" in topic:
+                chunks = msg.split(",")
+                params = [int(x) for x in chunks]
+                self.app.spider.add_move_q_raw(*params)
             if "resetzero" in topic:
                 self.app.spider.pos_real = self.app.spider.pos_goal = 0
             if "dump" in topic:
@@ -462,6 +514,9 @@ class Core:
             await self.mq.subscribe(f"{self.ha_prefix}/+/{self.nodeid}/+/set", 0)
             await self.mq.publish(self.topic_state, "online", True)
             asyncio.create_task(self.update_hass())
+            # we don't necessarily want to start this task everytime we get an MQ up event?
+            # at least, not without making it recallable properly....
+            #asyncio.create_task(self.app.wait_for_stuff())
 
     async def main_mq(self):
         print("starting async main!")

@@ -2,6 +2,7 @@
 Smaller test case for exploring the motor a little more
 """
 import asyncio
+import collections
 import json
 import socket
 import struct
@@ -11,6 +12,22 @@ import halloween2
 
 import machine
 
+
+# monkey patching to glory..
+def deque_clear(d):
+    empty = False
+    while not empty:
+        try:
+            d.popleft()
+        except IndexError:
+            empty = True
+
+
+class MoveTask:
+    def __init__(self, position, speed_limit=None, hold_time_ms=0):
+        self.position = position
+        self.speed_limit = speed_limit
+        self.hold_time_ms = hold_time_ms
 
 class Spider2:
     """
@@ -29,6 +46,8 @@ class Spider2:
 
         self.master_enable = False
 
+        self.move_q = collections.deque((), 10)
+        self.move_task: MoveTask = None
         self.pos_goal = 0
         self.in_position = True
         self.limits_hit = False
@@ -43,9 +62,9 @@ class Spider2:
         # Defaults empirically determined for the raw axel flag...
         #pid= 0.8/0.001/0.001 nope..
 
-        # Updates with real spider,
+        # Updates with real spider.
         self.kp = 0.8
-        self.ki = 0.005
+        self.ki = 0.01
         self.kd = 0.02
 
         self.mq = None
@@ -64,13 +83,32 @@ class Spider2:
         if self.master_enable:
             self.restart_pid()
         else:
-            self.t_pid.cancel()
+            if self.t_pid:
+                self.t_pid.cancel()
             self.motor.stop_brake()
 
+    def add_move_q(self, task: MoveTask):
+        self.move_q.append(task)
+
+    def add_move_q_raw(self, position, max_speed=None, hold_ms=0):
+        """
+        Appends a position to the move queue.
+        :param position:
+        :param max_speed:
+        :param hold_ms:
+        :return:
+        """
+        mt = MoveTask(position, max_speed, hold_ms)
+        self.add_move_q(mt)
+
     def move_to(self, position):
-        """Requests a move to an absolute position"""
-        self.pos_goal = position
-        self.in_position = False
+        """
+        Requests a move to an absolute position
+        Empties any existing move queue.
+        """
+        #self.move_q.clear() # not in micropython...
+        deque_clear(self.move_q)
+        self.add_move_q(MoveTask(position))
 
     def soft_limits(self, max, min, enable=True):
         """
@@ -102,9 +140,8 @@ class Spider2:
     async def maintain_position(self):
         """Uses a PID loop to maintain any given position"""
         MIN_MOTOR_THRESHOLD = 8 // 2 # so, it needs 8 to turn it frrom still, but can we go a bit lower when we're running?
-        CLOSE_ENOUGH = 4
-        last = time.ticks_ms() - self.step_ms # just for initial condition
-
+        CLOSE_ENOUGH = 5
+        last = time.ticks_ms() - self.step_ms  # just for initial condition
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setblocking(False)
@@ -117,6 +154,7 @@ class Spider2:
                 # We've hit OSError: [Errno 12] ENOMEM here, and we do _not_ want task death!
                 pass
 
+        t_hold_time = 0
         while True:
             now = time.ticks_ms()
             delta_t = now - last
@@ -124,8 +162,20 @@ class Spider2:
             #     print("long loop: ", delta_t)
             last = now
             pos = self.pos_real
+
+            # if we don't have a current task...
+            if not self.move_task:
+                # try and get a new movement task
+                try:
+                    self.move_task: MoveTask = self.move_q.popleft()
+                    self.pos_goal = self.move_task.position
+                    print("new task pos: ", self.move_task.position)
+                    t_hold_time = 0
+                except IndexError:
+                    # ok, no new position goals then, carry on.
+                    pass
+
             e = self.pos_goal - pos
-            self.in_position = abs(e) <= CLOSE_ENOUGH and abs(self.e_prev) <= CLOSE_ENOUGH
             # ideally, we should get a real time here, rather than assuming asyncio gave us precise timings?
             # Could use real time here?
             #delta_ts = self.step_ms / 1000  # careful, either always use ms, or always seconds....
@@ -133,15 +183,16 @@ class Spider2:
             dedt = (e - self.e_prev) / delta_ts
             self.eint = self.eint + e * delta_ts
 
-            # lol, magic! if we're going down, use a way smaller P term.
-            # kkp = self.kp
-            # if e > 0:
-            #     kkp = self.kp / 3
-
+            self.in_position = abs(e) <= CLOSE_ENOUGH and abs(self.e_prev) <= CLOSE_ENOUGH
             if self.in_position:
                 # yeah baby, this is enough, just stop here.  pid tuning sounds gross
                 # we still have encoder absolute positioning, so we still know where we are _truly_
-                # and can still use precise numbers to always move to "close enough" to the same place time after time....
+                # and can still use precise numbers to always move to "close enough" to the same place time after time
+                if self.move_task is not None:
+                    t_hold_time += delta_t
+                    if t_hold_time >= self.move_task.hold_time_ms:
+                        self.move_task = None
+                        t_hold_time = 0
                 out = 0
             else:
                 out = self.kp * e + self.ki * self.eint + self.kd * dedt
@@ -158,7 +209,7 @@ class Spider2:
             if out > 0 and out < MIN_MOTOR_THRESHOLD:
                 out = MIN_MOTOR_THRESHOLD
             if out < 0 and out > -MIN_MOTOR_THRESHOLD:
-                out = -MIN_MOTOR_THRESHOLD
+                out = -MIN_MOTOR_THRESHOLD  # FIXME actually, maybe don't have this when we're going down?
             # limit down speed, we want to lower, not drop...
             if out < 0 and out < -10:
                 out = -10
@@ -168,6 +219,12 @@ class Spider2:
                 out = 100 * self.speed_limit
             if out < -100 * self.speed_limit:
                 out = -100 * self.speed_limit
+
+            if self.move_task and self.move_task.speed_limit is not None:
+                if out > 0 and out > self.move_task.speed_limit:
+                    out = self.move_task.speed_limit
+                if out < 0 and out < -self.move_task.speed_limit:
+                    out = -self.move_task.speed_limit
             #print("speed: ", out)  # you can scan this for overshoot if you like, but it's spammy
             # This is absolutely not fast enough
             # if self.mq:
@@ -222,8 +279,11 @@ class Spider2:
                            ki=self.ki,
                            kd=self.kd,
                            position=self.pos_real,
-                           in_position=self.in_position,
-                           goal=self.pos_goal)
+                           in_position="ON" if self.in_position else "OFF",
+                           goal=self.pos_goal,
+                           task=dict(pos=self.move_task.position,
+                                     speed=self.move_task.speed_limit,
+                                     hold_ms=self.move_task.hold_time_ms) if self.move_task else {})
                 await self.mq.publish(f"{self.mq_topic}/state", json.dumps(msg))
 
         # send one when we start
