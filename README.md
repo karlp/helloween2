@@ -11,6 +11,10 @@ idf.py build
 ....
 profit
 ```
+aka
+```
+podman run --rm --device /dev/ttyUSB1 -v .:/project -w /project/boards/CUSTOM_ESP32 -e HOME=/tmp espressif/idf:v5.0.4 idf.py -b 921660 build erase-flash flash
+```
 
 
 ## Upstream
