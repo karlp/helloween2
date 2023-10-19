@@ -62,7 +62,10 @@ class Spider2:
         # Defaults empirically determined for the raw axel flag...
         #pid= 0.8/0.001/0.001 nope..
 
-        # Updates with real spider.
+        # Updates with real spider. These work, but always settle low, presumably because the motor can't
+        # give enough to make smaller adjustments?  We can just allow more slop in our measurements though
+        # and call it good, as these params result in decent "jiggle" for the spider, but not wildly slewing motors.
+        #
         self.kp = 0.8
         self.ki = 0.01
         self.kd = 0.02
@@ -140,7 +143,7 @@ class Spider2:
     async def maintain_position(self):
         """Uses a PID loop to maintain any given position"""
         MIN_MOTOR_THRESHOLD = 8 // 2 # so, it needs 8 to turn it frrom still, but can we go a bit lower when we're running?
-        CLOSE_ENOUGH = 5
+        CLOSE_ENOUGH = 25
         last = time.ticks_ms() - self.step_ms  # just for initial condition
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -183,6 +186,9 @@ class Spider2:
             dedt = (e - self.e_prev) / delta_ts
             self.eint = self.eint + e * delta_ts
 
+            # in_position is only used for a flag in HASS, for deciding when to stop spewing UDP
+            # and for deciding when a task is "done" so expanding the delta is ok, it will still
+            # chatter, we don't need to pid tune further
             self.in_position = abs(e) <= CLOSE_ENOUGH and abs(self.e_prev) <= CLOSE_ENOUGH
             if self.in_position:
                 # yeah baby, this is enough, just stop here.  pid tuning sounds gross
@@ -206,6 +212,7 @@ class Spider2:
             # out += MIN_MOTOR_THRESHOLD if out > 0 else -MIN_MOTOR_THRESHOLD
             # no, that didn't work well...
 
+            # potentially, if e is -ve, we might need _small_ positive to let it fall slowly?
             if out > 0 and out < MIN_MOTOR_THRESHOLD:
                 out = MIN_MOTOR_THRESHOLD
             if out < 0 and out > -MIN_MOTOR_THRESHOLD:
@@ -351,5 +358,13 @@ def sample(spider: Spider2, newpos=0, kp=0.6, ki=0, kd=0.005, speed_limit=1):
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(t_blah1())
+
+def little_play(s: Spider2, speed: int, t: int = 100):
+    """ let me fire the motor for t ms at speed to test some up/down slowly tthings..."""
+
+    s.motor.speed(speed)
+    time.sleep_ms(t)
+    s.motor.stop_brake()
+
 
 #s = MakeSpider()

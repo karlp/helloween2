@@ -372,17 +372,12 @@ class Core:
             elif "uid_btn_reset" in topic:
                 self.app.spider.pos_real = self.app.spider.pos_goal = 0
             elif "uid_btn_manual_trigger" in topic:
-                # FIXME - trigger the application pieces!
-                pass
+                self.app.ev_manual_trigger.set()
             elif "uid_btn_test_action" in topic:
                 ### Whateve we feel like right now.
                 print("ok, karls test action...")
-                #self.app.spider.move_q = []
-                #self.app.spider.move_to(800)
-                #self.app.spider.add_move_q_raw(800)
-                self.app.spider.add_move_q_raw(800, 20, 1500)
-                self.app.spider.add_move_q_raw(200, None, 1500)
-                self.app.spider.add_move_q_raw(800, 100)
+                self.app.spider.add_move_q_raw(800)
+                self.app.spider.add_move_q_raw(0)
 
             else:
                 print("UNHANDLED BUTTON")
@@ -516,7 +511,7 @@ class Core:
             asyncio.create_task(self.update_hass())
             # we don't necessarily want to start this task everytime we get an MQ up event?
             # at least, not without making it recallable properly....
-            #asyncio.create_task(self.app.wait_for_stuff())
+            asyncio.create_task(self.app.wait_for_stuff())
 
     async def main_mq(self):
         print("starting async main!")

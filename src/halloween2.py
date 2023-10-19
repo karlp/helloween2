@@ -202,6 +202,7 @@ class KPeopleSensor:
         self.pin = pin
         self.name = name
         self.found = asyncio.ThreadSafeFlag()  # From isr_rules.html....
+        self.ev = asyncio.Event()
         self.pin.irq(self._handler, trigger=trig)
         self.mq = None
         self.mq_topic = None
@@ -225,6 +226,7 @@ class KPeopleSensor:
         print("starting monitor for ", self.name)
         while True:
             await self.found.wait()
+            self.ev.set()
             print(f"DET<{self.name}>", self.pin.value())
             asyncio.create_task(post_mq_update())
         print("um, we finished?!", self.name)
@@ -233,6 +235,37 @@ class KPeopleSensor:
         # FIXME - need to figure out what the hell is wrong one day!
         asyncio.create_task(self.task_monitor())
         pass
+
+class KActionWrapper:
+    """
+    Wraps up sources of action triggers.  Not happy with the name.
+    We want to make "shows" be triggerable by one of any source:
+    PIR, radar, manual button push, mqtt message, HASS event, etc
+    However, we don't have asyncio.wait() in MP, so we have to wrap up all sources here...
+    approach we're taking is a "add event" thingy?
+    (Or just hard code it for now?)
+
+    We're likely going to have to poll them though, so we have a step time.
+    As we're doing this with low speed things, it can be pretty slow...
+    """
+    def __init__(self, step_ms=100):
+        self.step_ms = step_ms
+        self.sources = []
+
+    async def wait(self):
+        """Wait for the first of any of our sources"""
+        while True:
+            for s in self.sources:
+                if s.is_set(): # FUCKing TSF doesn't have is_set!
+                    s.clear()
+                    return s
+            await asyncio.sleep_ms(self.step_ms)
+
+    def add_source(self, source):
+        """source should be something that behaves like an ~~asyncio.ThreadSafeFlag~~ or an asyncio.Event"""
+        self.sources.append(source)
+
+
 
 
 class KLights:
@@ -433,6 +466,12 @@ class KApp():
         self.lights = KLights(mp_neopixel.NeoPixel(Board.STRIP, 300))
         self.people_sensor_rad = KPeopleSensor(Board.DETECTOR_RADAR, "rad")
         self.people_sensor_pir = KPeopleSensor(Board.DETECTOR_PIR, "pir")
+        self.ev_manual_trigger = asyncio.Event()
+        # Do I make a single object that contains both to wait on either?
+        self.action_wrapper = KActionWrapper()
+        self.action_wrapper.add_source(self.people_sensor_rad.ev)
+        self.action_wrapper.add_source(self.people_sensor_pir.ev)
+        self.action_wrapper.add_source(self.ev_manual_trigger)
 
 
     async def start_over(self):
@@ -467,18 +506,20 @@ class KApp():
             #     self.people_sensor_pir.found.wait(),
             # ], return_when=asyncio.FIRST_COMPLETED)
             # so we'll just wait for one for right now...
-            await self.people_sensor_rad.found.wait()
+            #await self.people_sensor_rad.found.wait()
+            x = await self.action_wrapper.wait()
+            print("triggered by ", x)
             t_idle.cancel()
             # notify internet about scaring another person?!!!
             print("main found a person!")
             t_attack = asyncio.create_task(self.lights.run_attack_simple1())
-            self.spider.add_move_q(800, max_speed=10, hold_ms=500)
-            self.spider.add_move_q(200, max_speed=100, hold_ms=500)
-            self.spider.add_move_q(800, max_speed=100, hold_ms=500)
-            self.spider.add_move_q(200, max_speed=10)
+            self.spider.add_move_q(spider2.MoveTask(800))
+            self.spider.add_move_q(spider2.MoveTask(200, hold_time_ms=500))
+            self.spider.add_move_q(spider2.MoveTask(600))
 
             print("running attack mode for XXX seconds before sleeping before allowing a new person")
-            await asyncio.sleep(5)
+            await asyncio.sleep(10)
+            self.spider.move_to(0)  # resting...
             t_attack.cancel()
 
 
