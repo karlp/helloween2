@@ -19,7 +19,7 @@ def RGB_2_HSV(RGB):
     RGB_Min = min(RGB)
 
     # Compute the value
-    V = RGB_Max;
+    V = RGB_Max
     if V == 0:
         H = S = 0
         return (H,S,V)
@@ -57,15 +57,15 @@ def HSV_2_RGB(HSV):
         return (R, G, B)
 
     # Make hue 0-5
-    region = H // 43;
+    region = H // 43
 
     # Find remainder part, make it from 0-255
-    remainder = (H - (region * 43)) * 6;
+    remainder = (H - (region * 43)) * 6
 
     # Calculate temp vars, doing integer multiplication
-    P = (V * (255 - S)) >> 8;
-    Q = (V * (255 - ((S * remainder) >> 8))) >> 8;
-    T = (V * (255 - ((S * (255 - remainder)) >> 8))) >> 8;
+    P = (V * (255 - S)) >> 8
+    Q = (V * (255 - ((S * remainder) >> 8))) >> 8
+    T = (V * (255 - ((S * (255 - remainder)) >> 8))) >> 8
 
 
     # Assign temp vars based on color cone region
@@ -75,29 +75,28 @@ def HSV_2_RGB(HSV):
         B = P
 
     elif region == 1:
-        R = Q;
-        G = V;
-        B = P;
+        R = Q
+        G = V
+        B = P
 
     elif region == 2:
-        R = P;
-        G = V;
-        B = T;
+        R = P
+        G = V
+        B = T
 
     elif region == 3:
-        R = P;
-        G = Q;
-        B = V;
+        R = P
+        G = Q
+        B = V
 
     elif region == 4:
-        R = T;
-        G = P;
-        B = V;
+        R = T
+        G = P
+        B = V
 
     else:
-        R = V;
-        G = P;
-        B = Q;
+        R = V
+        G = P
+        B = Q
 
-
-    return (R, G, B)
+    return R, G, B
