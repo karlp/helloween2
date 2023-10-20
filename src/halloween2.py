@@ -291,8 +291,14 @@ class KLights:
             ("blue_dummy1", self.run_blue_dummy1),
             ("rainbow1", self.run_rainbow1),
             ("vagrearg1", self.run_vagrearg1),
+            ("attack2", self.run_attack2),
+            ("idle2", self.run_idle2),
         ]
         self.off()
+
+    @staticmethod
+    def MakeKLights():
+        return KLights(mp_neopixel.NeoPixel(Board.STRIP, 300))
 
     def run_pattern(self, name, func, **kwargs):
         if self.t_lights:
@@ -426,14 +432,71 @@ class KLights:
                 await asyncio.sleep_ms(500)
             # then go back down again... if we like this sort of thing...
 
-    async def _inner_show_idle2(self):
+    async def run_idle2(self):
         """
-        Super fancy, select a few "nodes"
-        then, normal distribution a few neighbours up the brightness of the alt-colour..
-        ie, lots of little "pools" of colour appearing and disappearing...
+        We want this one to be the more ripply one.
+        Fill to a random spot in the "purple" area, (so it's not always the same)
+        Then, pick a random number of "nuclei" sort of like ~0-2 per meter?
+        Those then over time ripple up towards the blue, with triangular around them...
+
+        This isn't bad, but all the drops starting at the same time and growing at the same rate
+        isn't ideal.
+        Probably want a way of just saying, "add drop" and "step drop" each loop, but want to save this before
+        hacking further...
         :return:
         """
-        pass
+        print("starting show idle2")
+
+        BASE_PURPLE_H = (211, 255, 256//4)
+        BASE_CYAN_H = (127, 255, 5)  # starts dim
+        LEDS_PER_M = 60
+        STRIP_LEN = self.np.n // LEDS_PER_M
+        MAX_DROP_WIDTH = 4  # so, +- 4 in each direction, makes 9 pixels?
+
+        def random_near_h(h, s, v, spread=15):
+            new_hue = random.randrange(h - spread, h + spread)
+            return new_hue, s, v
+
+        last_purple_h = BASE_PURPLE_H[0]
+        while True:
+            newh, news, newv = random_near_h(*BASE_PURPLE_H)
+            # fade whole strip to new purple...
+            src = last_purple_h
+            last_purple_h = newh  # ready for next loop
+            dst = newh
+            step = 1 if dst > src else -1
+            for fade in range(src, dst, step):
+                self.np.fill(icolorsys.HSV_2_RGB((fade, news, newv)))
+                self.np.write()
+                await asyncio.sleep_ms(50)
+
+            # ok, now, to get ~0-2 per meter..
+            nuclei = []
+            nuclei_cnt = random.randrange(0*STRIP_LEN, 2*STRIP_LEN)
+            # # pick "near" colours for all the nucleii
+            while len(nuclei) < nuclei_cnt:
+                # easier to make sure we don't make drops that leave the boundary than to range check expansion
+                n = random.randrange(1 + MAX_DROP_WIDTH, self.np.n - MAX_DROP_WIDTH - 1)  # I can't be arsed to count properly.
+                col_h = random_near_h(*BASE_CYAN_H)
+                nuclei.append((n, col_h))
+            await asyncio.sleep_ms(0)  # yield
+
+            # ideally, drops should be 3,4,5 pixels wide? _each_ randomly? (but that's hard to step,
+            # we'd need to have smaller ones appear later...
+            # a thought for another day...
+            for w in range(MAX_DROP_WIDTH+1):  # this is the expansion of ripples loop
+                for nuc, col in nuclei:
+                    # for w = 1 we're setting nuclei
+                    # ok, goal is pix[nuc+-3] =
+                    for i in range(w):  # iterate the growing droplet..
+                        h, s, v = col  # chosen nucleii base...
+                        v += (w-i) * 30
+                        rgb = icolorsys.HSV_2_RGB((h, s, v))
+                        self.np[nuc+i] = rgb
+                        self.np[nuc-i] = rgb
+                self.np.write()
+                await asyncio.sleep_ms(250)
+            await asyncio.sleep_ms(500)
 
     async def run_attack_simple1(self):
         """ Basic, getting started "attack" pattern...
@@ -448,6 +511,23 @@ class KLights:
             self.np.write()
             await asyncio.sleep_ms(100)
 
+    async def run_attack2(self):
+        """
+        An alternative..
+        """
+        choices = [self.C_RED, self.C_ORANGE]
+        for n in range(self.np.n):
+            self.np.set_pixel(n, random.choice(choices))
+        self.np.write()
+        while True:
+            for i in range(0,5):
+                await asyncio.sleep_ms(50)
+                self.np.rotate(1)
+                self.np.write()
+            for i in range(0,5):
+                await asyncio.sleep_ms(50)
+                self.np.rotate(-1)
+                self.np.write()
 
 class KApp():
     """
@@ -473,32 +553,20 @@ class KApp():
         self.action_wrapper.add_source(self.people_sensor_pir.ev)
         self.action_wrapper.add_source(self.ev_manual_trigger)
 
-
-    async def start_over(self):
-        # await for these...?
-        asyncio.gather(
-            #self.spider.move_to(100),
-            self.lights.run_idle(),
-        )
-        # FIXME - reinitialize sensors? whatever?
-
-    async def show1(self):
-        """ wait til everyone's in place """
-        # In parallel, switch the lighting mode and start the spider moving
-        # FIXME - sooo, am I meant to be cancelling the existing task within the lights class there?
-        asyncio.gather(
-            self.lights.run_attack1(),
-            #self.spider.move_to(0, 100)
-        )
+        self.t_auto = None
 
     async def wait_for_stuff(self):
-        # Initialize sensors,
-        # fuck, I bit off more async python than I'm really ready for didn't I :)
-        # pseudocode ftw???
+        """
+        I think this needs a check on some sort of enable flag?
+        I'm pretty sure we need to make sure there's only one of these too?
+        :return:
+        """
+
         while True:
             print("(RE)starting outer loop")
             #await self.start_over()
-            t_idle = asyncio.create_task(self.lights.run_idle_simple())
+            #t_idle = asyncio.create_task(self.lights.run_idle_simple())
+            self.lights.run_pattern("idle_simple")
 
             # lol, no .wait in microptyhon...
             # await asyncio.wait([
@@ -508,11 +576,10 @@ class KApp():
             # so we'll just wait for one for right now...
             #await self.people_sensor_rad.found.wait()
             x = await self.action_wrapper.wait()
-            print("triggered by ", x)
-            t_idle.cancel()
             # notify internet about scaring another person?!!!
             print("main found a person!")
-            t_attack = asyncio.create_task(self.lights.run_attack_simple1())
+            #t_attack = asyncio.create_task(self.lights.run_attack_simple1())
+            self.lights.run_pattern("attack_simple1")
             self.spider.add_move_q(spider2.MoveTask(800))
             self.spider.add_move_q(spider2.MoveTask(200, hold_time_ms=500))
             self.spider.add_move_q(spider2.MoveTask(600))
@@ -520,8 +587,15 @@ class KApp():
             print("running attack mode for XXX seconds before sleeping before allowing a new person")
             await asyncio.sleep(10)
             self.spider.move_to(0)  # resting...
-            t_attack.cancel()
 
+    def auto_restart(self):
+        self.auto_stop()
+        self.t_auto = asyncio.create_task(self.wait_for_stuff())
+
+    def auto_stop(self):
+        if self.t_auto:
+            self.lights.off()
+            self.t_auto.cancel()
 
 
 
@@ -530,25 +604,6 @@ def t3():
     loop = asyncio.get_event_loop()
     app = KApp()
     loop.run_until_complete(app.wait_for_stuff())
-
-
-def tps_2():
-    loop = asyncio.get_event_loop()
-    app = KApp()
-    app.people_sensor.start_aio()
-    async def wot():
-        while True:
-            print("bleh")
-            await asyncio.sleep_ms(2000)
-    loop.run_until_complete(wot())
-
-def t4():
-    loop = asyncio.get_event_loop()
-    app = KApp()
-    loop.run_until_complete(app.spider.move_to(500))
-    print("ok loop finished stop sotp stop")
-    app.motor.stop()
-    # ok, assume position is at "zero"
 
 
 def t5():
@@ -561,3 +616,27 @@ def t5():
             print("bleh")
             await asyncio.sleep_ms(2000)
     loop.run_until_complete(wot())
+
+def tlights(pattern):
+    """ Lets you test light pattens without the whole flash / mq loop"""
+    #app = KApp()
+    #app.lights.off()
+    lights = KLights.MakeKLights()
+    found = False
+    for pat, f in lights.known_patterns:  # (string, func...) tuples?
+        if pat in pattern:
+            lights.run_pattern(pat, f)
+            found = True
+    if not found:
+        raise IndexError("No light matching in ", lights.known_patterns)
+    async def wot():
+        while True:
+            # print("bleh")
+            await asyncio.sleep_ms(2000)
+
+    try:
+        asyncio.run(wot())
+    finally:
+        print("Making sure we killed all our dangling tasks from last call ;)")
+        asyncio.new_event_loop()
+

@@ -1,6 +1,6 @@
 """
 Main, should just consider the "non application" pieces...
-
+(should)
 """
 
 try:
@@ -254,6 +254,17 @@ class Core:
         msg["~"] = base
         await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
 
+        # this makes a switch with no state, but can still send events?
+        msg["name"] = "auto enable"
+        uid = "uid_sw_auto_enable"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/switch/{self.nodeid}"
+        del msg["stat_t"] # = f"{self.ha_prefix}/sensor/{self.nodeid}/motor_state/state"
+        msg["cmd_t"] = f"~/{uid}/set"
+        del msg["value_template"] # = "{{value_json.master}}"
+        msg["~"] = base
+        await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+
         ## motor numbers too please...
         ## FIXME - it's probably worth having a whole separate routine for the motor params, to avoid this crap
         # we probably want to have these get their state from a shared message with position or something
@@ -357,6 +368,11 @@ class Core:
         elif topic.startswith(f"{self.ha_prefix}/switch"):
             if "uid_sw_mmaster" in topic:
                 self.app.spider.enable(msg == "ON")
+            elif "uid_sw_auto_enable" in topic:
+                if msg == "ON":
+                    self.app.auto_restart()
+                else:
+                    self.app.auto_stop()
             else:
                 print("UNHANDLED SWITCH")
         elif topic.startswith(f"{self.ha_prefix}/button"):
@@ -509,9 +525,7 @@ class Core:
             await self.mq.subscribe(f"{self.ha_prefix}/+/{self.nodeid}/+/set", 0)
             await self.mq.publish(self.topic_state, "online", True)
             asyncio.create_task(self.update_hass())
-            # we don't necessarily want to start this task everytime we get an MQ up event?
-            # at least, not without making it recallable properly....
-            asyncio.create_task(self.app.wait_for_stuff())
+            self.app.auto_restart()
 
     async def main_mq(self):
         print("starting async main!")
