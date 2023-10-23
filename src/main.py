@@ -12,9 +12,14 @@ except ImportError:
 
 import asyncio
 import binascii
+import deflate
+import gc
+import io
 import json
 import machine
 import network
+import os
+import requests
 import time
 
 import st7789
@@ -29,7 +34,7 @@ import halloween2
 
 class Core:
     def __init__(self):
-        self.tft = tft_config.config(rotation=1)
+        self.tft = tft_config.config(rotation=3)
         self.tft.init()
         self.font16 = font16
         self.font8 = font8
@@ -341,8 +346,6 @@ class Core:
         msg["stat_t"] = "~/state"
         self.app.spider.use_mq(self.mq, f"{base}/motor_state")
 
-
-
     async def handle_ha_message(self, topic: str, msg: str, retained: bool):
         """
         Take care of HA messages and routing appropriately...
@@ -417,11 +420,14 @@ class Core:
 
     async def handle_messages(self):
         async for topic, msg, retained in self.mq.queue:
-            print(f'Topic: "{topic.decode()}" Message: "{msg.decode()}" Retained: {retained}')
+            #print(f'Topic: "{topic.decode()}" Message: "{msg.decode()}" Retained: {retained}')
             asyncio.create_task(self.pulse())
             topic = topic.decode()
             msg = msg.decode()
+            #try:
             await self.handle_single_message(topic, msg, retained)
+            #except Exception as e:
+            #    print(f"internal message handler crashed, protecting!", e)
 
     async def handle_single_message(self, topic: str, msg: str, retained: bool):
         """Handle just a single message, allows returning nicely."""
@@ -434,6 +440,16 @@ class Core:
         # FIXME - lots of safety validation on messages please!
         # dispatch these all straight into their classes? or is control external?
         # FIXME - I'm pretty sure I end up with multiple tsks running :|
+        if "system" in topic:
+            print("ok, working wuith a system topic?")
+            chunks = topic.split("/")
+            if chunks[3] == "reboot":
+                machine.reset()
+            if chunks[3] == "rebootsoft":
+                machine.soft_reset()
+            if chunks[3] == "file":
+                await self.handle_mqtt_file(chunks[4], chunks[5], msg)
+
         if "lights" in topic:
             if "pattern" in topic:
                 for pat, f in self.app.lights.known_patterns:  # (string, func...) tuples?
@@ -496,6 +512,49 @@ class Core:
             if "dump" in topic:
                 msg = "um, stuff?"
 
+    async def handle_mqtt_file(self, action, name, data):
+        """lol, you trust your local network right?"""
+        gc.collect()
+        if action == "new":
+            # MemoryError: memory allocation failed, allocating 24877 bytes
+            print(f"creating {name} with {len(data)} bytes..")
+            with open(name, "w") as f:
+                f.write(data)
+        elif action == "newgz":
+            # memory alloc failed, allocated 32k...
+            with deflate.DeflateIO(io.BytesIO(data), deflate.GZIP) as d:
+                with open(name, "w") as f:
+                    f.write(d.read())
+        elif action == "newhttp":
+            # payload is URL..  This way works at least!
+            r = requests.get(data, headers={})
+            print("fetched http..")
+            if r.status_code == 200:
+                with open(name, "w") as f:
+                    while True:
+                        n = r.raw.read(1024)
+                        f.write(n)
+                        print("rx chunk: ", len(n))
+                        if len(n) != 1024:  # even sized files will hit this? who cares!
+                            break
+            else:
+                print("request failed: ", r)
+            r.close()
+        elif action == "rm":
+            os.remove(name)
+            print(f"removed {name}")
+        elif action == "cat":
+            with open(name, "r") as f:
+                blob = f.read()
+                await self.mq.publish(f"{self.topic_status}/system/file/{name}", blob)
+        elif action == "list":
+            print("attempting to list...")
+            files = os.listdir()
+            for f in files:
+            #    print("lkisting?", x)
+                await self.mq.publish(f"{self.topic_status}/system/list", f)
+        else:
+            print("Unhandled mqtt file action")
 
     async def down(self):
         """I don't think I need this one at all..."""
@@ -554,7 +613,8 @@ class Core:
         while True:
             await asyncio.sleep(2)
             i += 1
-            print("bleep bloop", self.app.spider.kp, self.app.spider.ki, self.app.spider.kd)
+            #print("bleep bloop", self.app.spider.kp, self.app.spider.ki, self.app.spider.kd)
+            print(f"lolicats RAD: {self.app.people_sensor_rad.pin.value()}, PIR: {self.app.people_sensor_pir.pin.value()}, BTN: {self.app.people_sensor_button.pin.value()}")
             self.helper_status(1, f"{self.app.spider.pos_goal} / {self.app.spider.pos_real}")
             #await self.mq.publish(self.topic_status, f"{i}, outs: {self.mq_down_events}")
             #await self.mq.publish(self.topic_status, self.generate_status_msg())
