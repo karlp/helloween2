@@ -13,7 +13,7 @@ Intent is:
 ## While idle:
  * led strips around door play a cool/dark slow purply/green idle ripples
 
-## When people detected coming towards doorway
+## When people detected coming towards doorway  (Updated, we're in reverse, motor doesn't like holding up permanently)
  * spider descends rapidly down
  * led strips switch to "agitated" with reds and oranges
  * Spider slowly re-ascends
@@ -21,8 +21,8 @@ Intent is:
 
 ## Expected manual requirements
  * even if we get encoders in place, in time, we'll need a way to re-adjust the "position" of the spider
-   so we don't get it all over the place
- * manual "start show" button
+   so we don't get it all over the place  >> done
+ * manual "start show" button >> done
  * manual override of the "idle" pattern
  * OTA?  We _might_ be ok with just webrepl and mpremote? (probably not, it's a "TODO" after mp1.20...)
 
@@ -58,6 +58,7 @@ Partly, this is because we don't even know what the control layer should really 
 * I quite like mqtt, I'm used to it...
 
 """
+import time
 
 try:
     import asynco
@@ -85,7 +86,8 @@ class Board:
     ENCODER2 = machine.Pin(22)
     STRIP = machine.Pin(17)
     #DETECTOR = machine.Pin(36, machine.Pin.IN)  # input only, but that's fine for this one
-    DETECTOR_RADAR = machine.Pin(25, machine.Pin.IN)  # 36 was busted?!
+    PUSH_BUTTON = machine.Pin(25, machine.Pin.IN)
+    DETECTOR_RADAR = machine.Pin(27, machine.Pin.IN)  # 36 was busted?!
     DETECTOR_PIR = machine.Pin(26, machine.Pin.IN)  # 36 was busted?!
 
 
@@ -222,12 +224,13 @@ class KPeopleSensor:
         async def post_mq_update():
             if self.mq:
                 await self.mq.publish(f"{self.mq_topic}/state", "ON")
+            # update LCD screen as well?
 
         print("starting monitor for ", self.name)
         while True:
             await self.found.wait()
             self.ev.set()
-            print(f"DET<{self.name}>", self.pin.value())
+            print(f"DET<{self.name}> found", self.pin.value())
             asyncio.create_task(post_mq_update())
         print("um, we finished?!", self.name)
 
@@ -305,6 +308,15 @@ class KLights:
             self.t_lights.cancel()
         self.helper_update_mq(dict(state="ON", effect=name))
         self.t_lights = asyncio.create_task(func(**kwargs))
+
+    def run_pattern_by_name(self, name, **kwargs):
+        func = None
+        for pat, f in self.known_patterns:  # (string, func...) tuples?
+            if name == pat:
+                func = f
+        if not func:
+            raise IndexError("No light matching:" + name)
+        self.run_pattern(name, func, **kwargs)
 
     def use_mq(self, mq, topic_base):
         """Provide the base topic that this should use for updates/states"""
@@ -451,52 +463,83 @@ class KLights:
         BASE_CYAN_H = (127, 255, 5)  # starts dim
         LEDS_PER_M = 60
         STRIP_LEN = self.np.n // LEDS_PER_M
-        MAX_DROP_WIDTH = 4  # so, +- 4 in each direction, makes 9 pixels?
+        MAX_NUCLEI = 2 * STRIP_LEN
+        MIN_NUCLEI = 2
+        MAX_DROP_WIDTH = 6  # "radius"
+        NEW_BG_TIME = 5000  # ms between new background colour rotations.
+        RIPPLE_SPEED_MS = 100  # we run the loop at this speed
+        RIPPLE_EXPANSION = 5  # expand ripples every N iterations
+
+        class Nuclei:
+            def __init__(self, np, pos, color_hsv):
+                self.np = np
+                self.pos = pos
+                self.h, self.s, self.v = color_hsv
+                self.index = 0
+                self.sub_index = 0
+
+            def step(self):
+                for i in range(self.index):
+                    self.v += (self.index-i) * 30 + self.sub_index * 3
+                    if self.v > 255:
+                        self.v = 255
+                    rgb = icolorsys.HSV_2_RGB((self.h, self.s, self.v))
+                    self.np[self.pos+i] = rgb
+                    self.np[self.pos-i] = rgb
+                self.sub_index += 1
+                if self.sub_index == RIPPLE_EXPANSION:
+                    self.index += 1
+                    self.sub_index = 0
 
         def random_near_h(h, s, v, spread=15):
             new_hue = random.randrange(h - spread, h + spread)
             return new_hue, s, v
 
+        # A nucleii has a position, a base colour, and a "current step index"...
+        # just add it to the tuple? nope. tuples are immutable..
+        # and every iter, randomly add a new drop if count < max?
+        # (in an insane world, we adjsut random chance to higher as we get closer to min... but fuck that)
+
+        nuclei = []
+
+        def make_new_nuclei():
+            # make sure position will stay in bounds...
+            n = random.randrange(1 + MAX_DROP_WIDTH, self.np.n - MAX_DROP_WIDTH - 1)  # I can't be arsed to count properly.
+            col_h = random_near_h(*BASE_CYAN_H)
+            return Nuclei(self.np, n, col_h)
+
         last_purple_h = BASE_PURPLE_H[0]
+        last_purple_t = time.ticks_ms()
+        dst = last_purple_h - 1  # force a change first time.
         while True:
-            newh, news, newv = random_near_h(*BASE_PURPLE_H)
-            # fade whole strip to new purple...
-            src = last_purple_h
-            last_purple_h = newh  # ready for next loop
-            dst = newh
-            step = 1 if dst > src else -1
-            for fade in range(src, dst, step):
-                self.np.fill(icolorsys.HSV_2_RGB((fade, news, newv)))
-                self.np.write()
-                await asyncio.sleep_ms(50)
+            now = time.ticks_ms()
+            if now - last_purple_t > NEW_BG_TIME:
+                dst, _, _ = random_near_h(*BASE_PURPLE_H)
+                #print("picking a new bg colour:  ", dst)
+                last_purple_t = now  # make sure you dont't make the time step shorter than how long it takes to fade!
 
-            # ok, now, to get ~0-2 per meter..
-            nuclei = []
-            nuclei_cnt = random.randrange(0*STRIP_LEN, 2*STRIP_LEN)
-            # # pick "near" colours for all the nucleii
-            while len(nuclei) < nuclei_cnt:
-                # easier to make sure we don't make drops that leave the boundary than to range check expansion
-                n = random.randrange(1 + MAX_DROP_WIDTH, self.np.n - MAX_DROP_WIDTH - 1)  # I can't be arsed to count properly.
-                col_h = random_near_h(*BASE_CYAN_H)
-                nuclei.append((n, col_h))
-            await asyncio.sleep_ms(0)  # yield
+            if last_purple_h != dst:
+                if last_purple_h > dst:
+                    last_purple_h -= 1
+                else:
+                    last_purple_h += 1
+            self.np.fill(icolorsys.HSV_2_RGB((last_purple_h, BASE_PURPLE_H[1], BASE_PURPLE_H[2])))
 
-            # ideally, drops should be 3,4,5 pixels wide? _each_ randomly? (but that's hard to step,
-            # we'd need to have smaller ones appear later...
-            # a thought for another day...
-            for w in range(MAX_DROP_WIDTH+1):  # this is the expansion of ripples loop
-                for nuc, col in nuclei:
-                    # for w = 1 we're setting nuclei
-                    # ok, goal is pix[nuc+-3] =
-                    for i in range(w):  # iterate the growing droplet..
-                        h, s, v = col  # chosen nucleii base...
-                        v += (w-i) * 30
-                        rgb = icolorsys.HSV_2_RGB((h, s, v))
-                        self.np[nuc+i] = rgb
-                        self.np[nuc-i] = rgb
-                self.np.write()
-                await asyncio.sleep_ms(250)
-            await asyncio.sleep_ms(500)
+            if len(nuclei) < MAX_NUCLEI:
+                # randomly add a drop or not...
+                # say 10% chance of new drop, as we run this relatively often?
+                if random.randrange(0, 100) > 90:
+                    nuclei.append(make_new_nuclei())
+            if len(nuclei) < MIN_NUCLEI:
+                nuclei.append(make_new_nuclei())
+
+            for nuc in nuclei:
+                nuc.step()
+
+            # drop finished nucleii!
+            nuclei = [nuc for nuc in nuclei if nuc.index < MAX_DROP_WIDTH]
+            self.np.write()
+            await asyncio.sleep_ms(RIPPLE_SPEED_MS)
 
     async def run_attack_simple1(self):
         """ Basic, getting started "attack" pattern...
@@ -544,13 +587,15 @@ class KApp():
         self.mencoder = KEncoder(0, Board.ENCODER1, Board.ENCODER2)
         self.spider = spider2.Spider2(self.motor, self.mencoder)
         self.lights = KLights(mp_neopixel.NeoPixel(Board.STRIP, 300))
-        self.people_sensor_rad = KPeopleSensor(Board.DETECTOR_RADAR, "rad")
-        self.people_sensor_pir = KPeopleSensor(Board.DETECTOR_PIR, "pir")
+        self.people_sensor_rad = KPeopleSensor(Board.DETECTOR_RADAR, "rad", trig=machine.Pin.IRQ_RISING)
+        self.people_sensor_pir = KPeopleSensor(Board.DETECTOR_PIR, "pir", trig=machine.Pin.IRQ_RISING)
+        self.people_sensor_button = KPeopleSensor(Board.PUSH_BUTTON, "btn")
         self.ev_manual_trigger = asyncio.Event()
         # Do I make a single object that contains both to wait on either?
         self.action_wrapper = KActionWrapper()
         self.action_wrapper.add_source(self.people_sensor_rad.ev)
         self.action_wrapper.add_source(self.people_sensor_pir.ev)
+        self.action_wrapper.add_source(self.people_sensor_button.ev)
         self.action_wrapper.add_source(self.ev_manual_trigger)
 
         self.t_auto = None
@@ -566,7 +611,8 @@ class KApp():
             print("(RE)starting outer loop")
             #await self.start_over()
             #t_idle = asyncio.create_task(self.lights.run_idle_simple())
-            self.lights.run_pattern("idle_simple")
+            #self.lights.run_pattern_by_name("idle_simple")
+            self.lights.run_pattern_by_name("idle2")
 
             # lol, no .wait in microptyhon...
             # await asyncio.wait([
@@ -579,7 +625,8 @@ class KApp():
             # notify internet about scaring another person?!!!
             print("main found a person!")
             #t_attack = asyncio.create_task(self.lights.run_attack_simple1())
-            self.lights.run_pattern("attack_simple1")
+            #self.lights.run_pattern_by_name("attack_simple1")
+            self.lights.run_pattern_by_name("attack2")
             self.spider.add_move_q(spider2.MoveTask(800))
             self.spider.add_move_q(spider2.MoveTask(200, hold_time_ms=500))
             self.spider.add_move_q(spider2.MoveTask(600))
