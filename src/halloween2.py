@@ -644,7 +644,7 @@ class KApp():
             #self.lights.run_pattern_by_name("attack_simple1")
             self.lights.run_pattern_by_name("attack2")
             self.spider.add_move_q(spider2.MoveTask(800))
-            self.spider.add_move_q(spider2.MoveTask(200, hold_time_ms=500))
+            self.spider.add_move_q(spider2.MoveTask(200, hold_time_ms=200))
             self.spider.add_move_q(spider2.MoveTask(600))
 
             print("running attack mode for XXX seconds before sleeping before allowing a new person")
