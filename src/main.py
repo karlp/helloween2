@@ -326,6 +326,20 @@ class Core:
         msg["step"] = 5
         msg["~"] = base
         await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+        msg["name"] = "master_v"
+        uid = "uid_master_v"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/number/{self.nodeid}"
+        msg["stat_t"] = f"{self.ha_prefix}/light/{self.nodeid}/uid_strip_lights/state"
+        msg["cmd_t"] = f"~/{uid}/set"
+        msg["value_template"] = "{{value_json.master_v}}"
+        msg["min"] = 0
+        msg["max"] = 255
+        msg["mode"] = "slider"
+        msg["step"] = 1
+        msg["~"] = base
+        await self.mq.publish(f"{base}/{uid}/config", json.dumps(msg), retain, qos)
+
         del msg["min"]
         del msg["max"]
         del msg["mode"]
@@ -413,6 +427,9 @@ class Core:
             elif "uid_pos_goal" in topic:
                 term = int(msg)
                 self.app.spider.move_to(term)
+            elif "uid_master_v" in topic:
+                term = int(msg)
+                self.app.lights.config_max_v = term
             else:
                 print("UNHANDLED NUMBER")
         else:

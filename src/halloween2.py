@@ -279,6 +279,7 @@ class KLights:
         self.np = strip
         self.np.ORDER = (0, 1, 2, 3)  # My ws2815 are actualyl rgb, not grb like classics.
         self.SCALE = 4
+        self.config_max_v = 200  # use this to make a global, across effects master brightness...
         self.t_lights = None
         self.mq = None
         self.mq_topic = None
@@ -338,22 +339,27 @@ class KLights:
     def off(self):
         if self.t_lights:
             self.t_lights.cancel()
-        self.helper_update_mq(dict(state="OFF"))
+        self.helper_update_mq(dict(state="OFF", master_v=self.config_max_v))
         self.np.fill((0, 0, 0))
         self.np.write()
 
     def on_soft(self):
         if self.t_lights:
             self.t_lights.cancel()
-        self.helper_update_mq(dict(state="ON"))
-        self.np.fill((255 // self.SCALE, 210//self.SCALE, 105 // self.SCALE))
+        self.helper_update_mq(dict(state="ON", master_v=self.config_max_v))
+        rgb_tungsten = 255, 214, 170
+        h, s, v = icolorsys.RGB_2_HSV(rgb_tungsten)
+        # now, use config master V limit...
+        rgb = icolorsys.HSV_2_RGB((h, s, self.config_max_v))
+        #self.np.fill((255 // self.SCALE, 210//self.SCALE, 105 // self.SCALE))
+        self.np.fill(rgb)
         self.np.write()
 
     async def run_vagrearg1(self, step_ms=50):
         """Sample program from https://www.vagrearg.org/content/hsvrgb"""
         hue = 0
         val = 255
-        val_max = 255
+        val_max = self.config_max_v
         hue_max = 255
         direction = -3
 
@@ -379,6 +385,7 @@ class KLights:
         divide length into equal segments of roygbiv
         anything left at the end will be left black,and we'll rotate into it...
         then... rotate?
+        # FIXME - this one doesn't respect max V!
         :return:
         """
         # // 4 is to cut the brightness down so that I don't brown out my supply.... :)
@@ -459,7 +466,7 @@ class KLights:
         """
         print("starting show idle2")
 
-        BASE_PURPLE_H = (211, 255, 256//4)
+        BASE_PURPLE_H = (211, 255, self.config_max_v)
         BASE_CYAN_H = (127, 255, 5)  # starts dim
         LEDS_PER_M = 60
         STRIP_LEN = self.np.n // LEDS_PER_M
@@ -559,15 +566,19 @@ class KLights:
         An alternative..
         """
         choices = [self.C_RED, self.C_ORANGE]
+        choices_hsv = [icolorsys.RGB_2_HSV(rgb) for rgb in choices]
+
         for n in range(self.np.n):
-            self.np.set_pixel(n, random.choice(choices))
+            rh, rs, rv = random.choice(choices_hsv)
+            #self.np.set_pixel(n, random.choice(choices))
+            self.np.set_pixel(n, icolorsys.HSV_2_RGB((rh, rs, self.config_max_v)))
         self.np.write()
         while True:
-            for i in range(0,5):
+            for i in range(0, 5):
                 await asyncio.sleep_ms(50)
                 self.np.rotate(1)
                 self.np.write()
-            for i in range(0,5):
+            for i in range(0, 5):
                 await asyncio.sleep_ms(50)
                 self.np.rotate(-1)
                 self.np.write()
