@@ -34,7 +34,7 @@ import halloween2
 
 class Core:
     def __init__(self):
-        self.tft = tft_config.config(rotation=3)
+        self.tft = tft_config.config(rotation=1)
         self.tft.init()
         self.font16 = font16
         self.font8 = font8
@@ -178,7 +178,6 @@ class Core:
         self.app.lights.use_mq(self.mq, base)
         del msg["effect"]
         del msg["effect_list"]
-
 
         ## people sensors  This one works, with expiry and stuff, just the detector itself is busted.
         msg["name"] = "people detector rad"

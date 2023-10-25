@@ -82,13 +82,13 @@ class Board:
     """
     MOTOR1 = machine.Pin(32, machine.Pin.OUT)
     MOTOR2 = machine.Pin(33, machine.Pin.OUT)
-    ENCODER1 = machine.Pin(21)
-    ENCODER2 = machine.Pin(22)
-    STRIP = machine.Pin(17)
+    ENCODER1 = machine.Pin(26)
+    ENCODER2 = machine.Pin(27)
+    STRIP = machine.Pin(25)
     #DETECTOR = machine.Pin(36, machine.Pin.IN)  # input only, but that's fine for this one
-    PUSH_BUTTON = machine.Pin(25, machine.Pin.IN)
-    DETECTOR_RADAR = machine.Pin(27, machine.Pin.IN)  # 36 was busted?!
-    DETECTOR_PIR = machine.Pin(26, machine.Pin.IN)  # 36 was busted?!
+    PUSH_BUTTON = machine.Pin(38, machine.Pin.IN)
+    DETECTOR_RADAR = machine.Pin(21, machine.Pin.IN)  # 36 was busted?!
+    DETECTOR_PIR = machine.Pin(22, machine.Pin.IN)  # 36 was busted?!
 
 
 class KEncoderPortable(encoder_portable.Encoder):
@@ -373,6 +373,7 @@ class KLights:
             val += direction
             if val < val_max // 4 or val == val_max:
                 direction = -direction  # reverse
+
 
             r, g, b = icolorsys.HSV_2_RGB((hue, 255, val))
             self.np.fill((r//4, g//4, b//4))  # limit to half brightness at least...
