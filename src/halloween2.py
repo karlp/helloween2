@@ -86,7 +86,7 @@ class Board:
     ENCODER2 = machine.Pin(27)
     STRIP = machine.Pin(25)
     #DETECTOR = machine.Pin(36, machine.Pin.IN)  # input only, but that's fine for this one
-    PUSH_BUTTON = machine.Pin(38, machine.Pin.IN)
+    PUSH_BUTTON = machine.Pin(17, machine.Pin.IN)
     DETECTOR_RADAR = machine.Pin(21, machine.Pin.IN)  # 36 was busted?!
     DETECTOR_PIR = machine.Pin(22, machine.Pin.IN)  # 36 was busted?!
 
@@ -208,6 +208,7 @@ class KPeopleSensor:
         self.pin.irq(self._handler, trigger=trig)
         self.mq = None
         self.mq_topic = None
+        self.t_monitor = None
 
     def _handler(self, p):
         # I _should_ only get an IRQ when it actually falls, but have been unable to figure
@@ -218,7 +219,7 @@ class KPeopleSensor:
     def use_mq(self, mq, mq_topic_base):
         self.mq = mq
         self.mq_topic = mq_topic_base
-        self.start_aio()
+        self.start_aio()  # will (re) start aio if necessary
 
     async def task_monitor(self):
         async def post_mq_update():
@@ -235,9 +236,9 @@ class KPeopleSensor:
         print("um, we finished?!", self.name)
 
     def start_aio(self):
-        # FIXME - need to figure out what the hell is wrong one day!
-        asyncio.create_task(self.task_monitor())
-        pass
+        if self.t_monitor:
+            self.t_monitor.cancel()
+        self.t_monitor = asyncio.create_task(self.task_monitor())
 
 class KActionWrapper:
     """
@@ -601,7 +602,10 @@ class KApp():
         self.lights = KLights(mp_neopixel.NeoPixel(Board.STRIP, 300))
         self.people_sensor_rad = KPeopleSensor(Board.DETECTOR_RADAR, "rad", trig=machine.Pin.IRQ_RISING)
         self.people_sensor_pir = KPeopleSensor(Board.DETECTOR_PIR, "pir", trig=machine.Pin.IRQ_RISING)
-        self.people_sensor_button = KPeopleSensor(Board.PUSH_BUTTON, "btn")
+        self.people_sensor_button = KPeopleSensor(Board.PUSH_BUTTON, "btn", trig=machine.Pin.IRQ_FALLING)
+        self.people_sensor_rad.start_aio()
+        self.people_sensor_pir.start_aio()
+        self.people_sensor_button.start_aio()
         self.ev_manual_trigger = asyncio.Event()
         # Do I make a single object that contains both to wait on either?
         self.action_wrapper = KActionWrapper()

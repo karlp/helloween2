@@ -198,6 +198,15 @@ class Core:
         await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
         self.app.people_sensor_pir.use_mq(self.mq, base)
 
+        msg["name"] = "people detector button"
+        uid = "uid_people_detector_btn"
+        msg["unique_id"] = uid
+        base = f"{self.ha_prefix}/sensor/{self.nodeid}/{uid}"
+        msg["~"] = base
+        msg["expire_after"] = 10
+        await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
+        self.app.people_sensor_btn.use_mq(self.mq, base)
+
         msg["name"] = "In Position"
         uid = "uid_in_position"
         msg["unique_id"] = uid
