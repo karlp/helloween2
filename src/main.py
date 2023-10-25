@@ -562,6 +562,8 @@ class Core:
                         print("rx chunk: ", len(n))
                         if len(n) != 1024:  # even sized files will hit this? who cares!
                             break
+                await self.mq.publish(f"{self.topic_status}/system/file/{name}",
+                                      f"Action: {action}, name: {name} completed")
             else:
                 print("request failed: ", r)
             r.close()
