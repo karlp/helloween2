@@ -30,9 +30,11 @@ The animation sequence and motor motion control would occasionally lose it's min
 
 ## More pics
 
-[![Controller setup](pics/control_setup_s.jpg)]
-[Daylight spider jump](pics/daylight-spider.mp4)
-[![Home Assistant options](pics/hass-controls.png)
+![Controller setup](pics/control-setup_s.jpg)
+
+[![Snap from daylight video](pics/snap-spider-daylight-2023.png)](pics/daylight-spider.mp4)
+
+![Home Assistant options](pics/hass-controls.png)
 
 
 ## Getting Started
