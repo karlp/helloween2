@@ -206,7 +206,7 @@ class Core:
         msg["~"] = base
         msg["expire_after"] = 10
         await self.mq.publish(f"{base}/config", json.dumps(msg), retain, qos)
-        self.app.people_sensor_btn.use_mq(self.mq, base)
+        self.app.people_sensor_button.use_mq(self.mq, base)
 
         msg["name"] = "In Position"
         uid = "uid_in_position"
