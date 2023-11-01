@@ -56,3 +56,11 @@ podman run --rm --device /dev/ttyUSB1 -v .:/project -w /project/boards/CUSTOM_ES
 ## Upstream
 This repository structure is based on: https://github.com/micropython/micropython-example-boards
 
+## Extra notes
+We're using an unmerged PR, to get support for the hardware encoder support on the ESP32.  Without it, you'll never get viable encoder positions from a turning motor.  The `encoder_portable.py` implementation I used initially is only really suited for UI dials.  This should still "land soon"
+
+We built and tested prometheus-aio because at one stage we were going to record all the "scarings" for fun reporting.  But it ne ver really felt very performant, and it was _very_ out of scope :)
+
+We modified the neopixel built in code to be able to use slices.  This was inspired by the `blaz_neopixel` project, which targets rp2040.
+
+Working in HSV means even numkins like myself can do colour animations!
