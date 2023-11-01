@@ -110,7 +110,8 @@ class Core:
         finally:
             self.mq.close()
             print("exploded, restarting!")
-            asyncio.new_event_loop()
+            machine.reset()
+            #asyncio.new_event_loop()
 
     def helper_led(self, led_idx, on):
         col = st7789.BLACK
@@ -417,8 +418,10 @@ class Core:
             elif "uid_btn_test_action" in topic:
                 ### Whateve we feel like right now.
                 print("ok, karls test action...")
-                self.app.spider.add_move_q_raw(800)
-                self.app.spider.add_move_q_raw(0)
+                #self.app.spider.add_move_q_raw(800)
+                #self.app.spider.add_move_q_raw(0)
+                # this is more important....
+                machine.reset()
 
             else:
                 print("UNHANDLED BUTTON")
